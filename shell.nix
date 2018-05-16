@@ -5,7 +5,7 @@ let
   inherit (nixpkgs) pkgs;
 
   f = { mkDerivation, base, distributed-process, network-transport
-      , network-transport-tcp, stdenv
+      , network-transport-tcp, optparse-applicative, stdenv
       }:
       mkDerivation {
         pname = "distrib-task";
@@ -16,6 +16,7 @@ let
         libraryHaskellDepends = [ base distributed-process ];
         executableHaskellDepends = [
           base distributed-process network-transport network-transport-tcp
+          optparse-applicative
         ];
         license = stdenv.lib.licenses.bsd3;
       };

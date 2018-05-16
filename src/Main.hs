@@ -1,8 +1,25 @@
+
+import Options.Applicative
+import Data.Semigroup ((<>))
+
 import Control.Concurrent (threadDelay)
 import Control.Monad (forever)
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
+
+data InputArgs = InputArgs
+  { sendDuration :: Int
+  , waitDuration  :: Int
+  , inputSeed    :: Int
+  }
+  deriving (Show)
+
+inputArgs :: Parser InputArgs
+inputArgs = InputArgs
+  <$> option auto (long "send-for" <> help "Send duration in sec" <> metavar "INT")
+  <*> option auto (long "wait-for" <> help "Wait duration in sec" <> metavar "INT")
+  <*> option auto (long "with-seed" <> help "Seed value in integer" <> metavar "INT")
 
 replyBack :: (ProcessId, String) -> Process ()
 replyBack (sender, msg) = send sender msg
@@ -12,6 +29,11 @@ logMessage msg = say $ "handling " ++ msg
 
 main :: IO ()
 main = do
+  let opts = info (inputArgs <**> helper)
+        (fullDesc <> progDesc "Task")
+  iArgs <- execParser opts
+  print iArgs
+
   Right t <- createTransport "127.0.0.1" "10501" defaultTCPParameters
   node <- newLocalNode t initRemoteTable
   runProcess node $ do
