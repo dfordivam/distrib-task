@@ -46,7 +46,9 @@ main = do
   print (r1 :: Double)
   print (r2 :: Double)
 
-  Right t <- createTransport (myHostName iArgs) (show $ myPortName iArgs) defaultTCPParameters
+  Right t <- createTransport (myHostName iArgs) (show $ myPortName iArgs)
+    (\p -> (myHostName iArgs, p))
+    defaultTCPParameters
   node <- newLocalNode t initRemoteTable
   Right myEndPoint <- newEndPoint t
 
