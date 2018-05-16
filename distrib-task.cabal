@@ -34,5 +34,7 @@ executable node
                        , network-transport-tcp
                        , network-transport
                        , optparse-applicative
+                       , random
+                       , bytestring
 
   default-language:    Haskell2010
