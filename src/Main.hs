@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 
 import Options.Applicative
 import Data.Semigroup ((<>))
@@ -8,6 +9,7 @@ import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Network.Transport as NT
+import Control.Distributed.Process.Closure
 
 import qualified Data.ByteString.Char8 as BS
 import System.Random
@@ -33,6 +35,14 @@ inputArgs = InputArgs
 
 type NodesConfig = [(String, Int)]
 
+logMessage :: String -> Process ()
+logMessage msg = say $ "handling " ++ msg
+
+remotable ['logMessage]
+
+myRemoteTable :: RemoteTable
+myRemoteTable = Main.__remoteTable initRemoteTable
+
 main :: IO ()
 main = do
   let opts = info (inputArgs <**> helper)
@@ -49,7 +59,7 @@ main = do
   Right t <- createTransport (myHostName iArgs) (show $ myPortName iArgs)
     (\p -> (myHostName iArgs, p))
     defaultTCPParameters
-  node <- newLocalNode t initRemoteTable
+  node <- newLocalNode t myRemoteTable
   Right myEndPoint <- newEndPoint t
 
   liftIO $ print $ address myEndPoint
@@ -86,10 +96,6 @@ main = do
 
 -- replyBack :: (ProcessId, String) -> Process ()
 -- replyBack (sender, msg) = send sender msg
-
--- logMessage :: String -> Process ()
--- logMessage msg = say $ "handling " ++ msg
-
 
 -- verify connection to all nodes specified in config file
 supervisorProcess :: NodesConfig -> EndPoint -> Process ()
