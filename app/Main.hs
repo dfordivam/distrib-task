@@ -7,21 +7,16 @@ import SingleServer.Types
 import Options.Applicative
 import Data.Semigroup ((<>))
 
-import Control.Concurrent (threadDelay)
-import Control.Monad (forever, forM, void)
-import Control.Distributed.Process
-import Control.Distributed.Process.Node
+import Control.Distributed.Process.Node (newLocalNode, initRemoteTable)
+import Control.Monad.IO.Class (liftIO)
+
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Network.Transport as NT
-import Control.Distributed.Process.Closure
-
-import qualified Data.ByteString.Char8 as BS
-import System.Random
 
 data InputArgs = InputArgs
   { configForServer :: Maybe (String, ConfigData)
   , myHostName      :: String
-  , myPortName      :: Int
+  , myPort          :: Int
   }
   deriving (Show)
 
@@ -42,13 +37,11 @@ main = do
   iArgs <- execParser opts
   print iArgs
 
-  Right t <- createTransport (myHostName iArgs) (show $ myPortName iArgs)
+  Right t <- createTransport (myHostName iArgs) (show $ myPort iArgs)
     (\p -> (myHostName iArgs, p))
     defaultTCPParameters
   node <- newLocalNode t initRemoteTable
-  Right myEndPoint <- newEndPoint t
 
-  liftIO $ print $ address myEndPoint
   case (configForServer iArgs) of
     Nothing -> startLeafNode node
     (Just (fileName,cd)) -> do

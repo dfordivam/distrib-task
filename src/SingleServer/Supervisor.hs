@@ -34,9 +34,7 @@ import Control.Distributed.Process ( expectTimeout
                                    , ReceivePort
                                    , WhereIsReply(..) )
 import Control.Distributed.Process.Extras.Time (Delay(..))
-import Control.Distributed.Process.Node ( initRemoteTable
-                                        , runProcess
-                                        , newLocalNode
+import Control.Distributed.Process.Node ( runProcess
                                         , LocalNode)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Network.Transport     (EndPointAddress(..))
