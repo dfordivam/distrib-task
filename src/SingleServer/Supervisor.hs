@@ -4,6 +4,7 @@ module SingleServer.Supervisor
   where
 
 import SingleServer.Types
+import Utils
 
 import Control.Distributed.Process.ManagedProcess.Client (callChan, cast)
 import Control.Distributed.Process.ManagedProcess ( serve
@@ -49,8 +50,9 @@ import Control.Concurrent (threadDelay
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (void, forever, forM)
 import Data.Foldable (toList)
-import qualified Data.ByteString.Char8 as BS (pack)
+
 import qualified Data.Sequence as Seq
+
 -- Supervisor acts as both a client and a server
 -- It first discovers all nodes and establishes connection with them
 -- Then it kicks the leaf nodes to send messages
@@ -63,14 +65,14 @@ startSupervisorNode
   -> IO ()
 startSupervisorNode node cd nodeList = runProcess node $ do
   spid <- spawnLocal supervisorServer
-  register "supervisor-server" spid
+  register supervisorServerId spid
 
   kickSignalMVar <- liftIO $ newEmptyMVar
   initDoneMVar <- liftIO $ newMVar (length nodeList)
 
   forM (zip [1..] nodeList) $ \(i, leaf) -> spawnLocal $ do
     say $ "Searching leaf: " ++ (show leaf)
-    leafPid <- searchLeafNode leaf
+    leafPid <- searchRemotePid leafServerId leaf
     say $ "Found leaf: " ++ (show leaf)
     (_ :: ()) <- call leafPid
       (LeafInitData cd i ("127.0.0.1",12346))
@@ -81,6 +83,7 @@ startSupervisorNode node cd nodeList = runProcess node $ do
     liftIO $ readMVar kickSignalMVar
 
     -- start nodes
+    say $ "Start messaging: " ++ (show leaf)
     cast leafPid (StartMessaging)
 
   let waitLoop = do
@@ -128,16 +131,3 @@ newMessage (mainSeqMVar) _ (NewMessage d lastSyncPoint) = do
         Seq.splitAt lastSyncPoint mainSeq
   reply (newValues) ()
 
-searchLeafNode :: (String, Int) -> Process ProcessId
-searchLeafNode leaf = do
-  let addr = EndPointAddress $ BS.pack $
-                   (fst leaf) ++ ":" ++ (show $ snd leaf)
-                   ++ ":0"
-      srvId = NodeId addr
-  whereisRemoteAsync srvId "leaf-server"
-  reply <- expectTimeout 1000000
-  case reply of
-    Just (WhereIsReply _ (Just sid)) -> return sid
-    _ -> do
-      say $ "Search Leaf Node: " ++ (show leaf)
-      searchLeafNode leaf

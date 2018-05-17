@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 import SingleServer.Supervisor
 import SingleServer.LeafNode
 import SingleServer.Types

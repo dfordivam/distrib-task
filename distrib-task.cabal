@@ -22,6 +22,7 @@ library
   exposed-modules:     SingleServer.Supervisor
                        SingleServer.LeafNode
                        SingleServer.Types
+                       Utils
 
   build-depends:       base >=4.9 && <4.11
                        , distributed-process

@@ -2,6 +2,7 @@ module SingleServer.LeafNode
   (startLeafNode)
   where
 
+import Utils
 import SingleServer.Types
 
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
@@ -49,7 +50,7 @@ import Network.Transport     (EndPointAddress(..))
 import System.Random (mkStdGen, random)
 import Data.Time.Clock (getCurrentTime
                        , addUTCTime)
-import qualified Data.ByteString.Char8 as BS (pack)
+
 -- Leaf node start as a server, ie it waits for supervisor to connect
 -- After receiving relevant details and kick-off signal from supervisor
 -- it acts as a client and send messages and receives replies
@@ -58,7 +59,7 @@ startLeafNode :: LocalNode -> IO ()
 startLeafNode node = runProcess node $ do
   say "Starting Leaf server"
   pId <- spawnLocal $ serve () (initServerState) leafServer
-  register "leaf-server" pId
+  register leafServerId pId
   say $ "Server launched at: " ++ show (nodeAddress . processNodeId $ pId)
   liftIO $ forever $ threadDelay 1000000000
 
@@ -92,35 +93,18 @@ startClient s@(Just (_, pid)) _ = do
 leafClient :: LeafInitData -> Process ()
 leafClient leafData = do
   say "Starting Leaf client"
-  pid <- searchLeafNode (serverIp leafData)
-  say $ "Doing call to:" ++ (show pid)
-  working <- call pid (TestPing)
+  spid <- searchRemotePid supervisorServerId (serverIp leafData)
+  say $ "Doing call to:" ++ (show spid)
+  working <- call spid (TestPing)
   say $ "Did call to:" ++ (show $ (working :: Int))
   reply <- expectTimeout 10000000
+  say $ "Got reply:" ++ (show reply)
   case (reply :: Maybe ()) of
     Nothing ->
       say $ "timeout from leafclient: "
         ++ (show $ leafId leafData)
     _ -> do
-      leafClientWork leafData pid
-
-  -- case (working :: Maybe Int) of
-  --   Nothing -> do
-  --     say $ "No response from server"
-  --       ++ (show $ leafId leafData)
-  --     liftIO $ threadDelay 10000000
-  --     return ()
-  --   _ -> do
-  --     say $ "leafClient ready: "
-  --       ++ (show $ leafId leafData)
-  --     -- wait for kick off signal
-  --     reply <- expectTimeout 1000000
-  --     case (reply :: maybe ()) of
-  --       nothing ->
-  --         say $ "timeout from leafclient: "
-  --           ++ (show $ leafid leafdata)
-  --       _ -> do
-  --         leafclientwork leafdata pid
+      leafClientWork leafData spid
 
 -- start working
 -- print result and gracefully exit?
@@ -154,20 +138,3 @@ leafClientWork leafData pid = do
 getRngInit (LeafInitData (_,_,s) i _)
   = mkStdGen seed
   where seed = s * i * 15485863 -- a prime number
-
-searchLeafNode :: (String, Int) -> Process ProcessId
-searchLeafNode leaf = do
-  let addr = EndPointAddress $ BS.pack $
-                   (fst leaf) ++ ":" ++ (show $ snd leaf)
-                   ++ ":0"
-      srvId = NodeId addr
-  say "trying"
-  whereisRemoteAsync srvId "supervisor-server"
-  say "sent"
-  reply <- expectTimeout 1000000
-  say "221"
-  case reply of
-    Just (WhereIsReply _ (Just sid)) -> return sid
-    _ -> do
-      say $ "Search supervisor Node: " ++ (show leaf)
-      searchLeafNode leaf

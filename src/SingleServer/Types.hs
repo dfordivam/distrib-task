@@ -29,3 +29,6 @@ data TestPing = TestPing
 type MessageReply = [Double]
 
 type NodesConfig = [(String, Int)]
+
+leafServerId = "leaf-server"
+supervisorServerId = "supervisor-server"
