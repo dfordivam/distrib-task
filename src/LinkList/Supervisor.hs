@@ -1,9 +1,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-module SingleServer.Supervisor
+module LinkList.Supervisor
   (startSupervisorNode)
   where
 
-import SingleServer.Types
+import LinkList.Types
 import Utils
 
 import Control.Distributed.Process.ManagedProcess.Client (callChan, cast)
@@ -49,14 +49,11 @@ import Control.Concurrent (threadDelay
                           , readMVar)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (void, forever, forM)
-import Data.Foldable (toList)
-
-import qualified Data.Sequence as Seq
 
 -- Supervisor acts as both a client and a server
 -- It first discovers all nodes and establishes connection with them
--- Then it kicks the leaf nodes to send messages
--- this time it acts as a server, receiving messages and sending updated message list
+-- After the leaf nodes are ready
+-- It kicks the messages exchange
 
 startSupervisorNode
   :: LocalNode
@@ -64,19 +61,24 @@ startSupervisorNode
   -> NodesConfig
   -> (String, Int)
   -> IO ()
-startSupervisorNode node cd nodeList serverIp = runProcess node $ do
+startSupervisorNode node cd nodeList@(n:[]) serverIp =
+  putStrLn "Need atleast two nodes"
+
+startSupervisorNode node cd nodeList@(n:ns) serverIp = runProcess node $ do
   spid <- spawnLocal supervisorServer
   register supervisorServerId spid
 
   kickSignalMVar <- liftIO $ newEmptyMVar
   initDoneMVar <- liftIO $ newMVar (length nodeList)
 
-  forM (zip [1..] nodeList) $ \(i, leaf) -> spawnLocal $ do
+  let peerList = ns ++ [n]
+  forM (zip3 [1..] peerList nodeList) $ \(i, peer,leaf) -> spawnLocal $ do
     say $ "Searching leaf: " ++ (show leaf)
     leafPid <- searchRemotePid leafServerId leaf
     say $ "Found leaf: " ++ (show leaf)
     (_ :: ()) <- call leafPid
-      (LeafInitData cd i serverIp)
+      (LeafInitData cd (LeafNodeId i)
+        (length nodeList) serverIp peer)
     -- Indicate if all leaves init correctly
     liftIO $ modifyMVar_ initDoneMVar (\c -> return (c - 1))
 
@@ -98,10 +100,9 @@ startSupervisorNode node cd nodeList serverIp = runProcess node $ do
 
 supervisorServer :: Process ()
 supervisorServer = do
-  s <- liftIO $ newMVar $ Seq.empty
   let
     server = defaultProcess
-      { apiHandlers = [handleCall (newMessage s), handleCall testPing]
+      { apiHandlers = [handleCall testPing]
       , infoHandlers = []
       , unhandledMessagePolicy = Log
       }
@@ -111,24 +112,7 @@ supervisorServer = do
 initServerState _ = do
   return $ InitOk () NoDelay
 
-type SupervisorServerState =
-  (MVar (Seq.Seq Double))
-
 testPing :: CallHandler () TestPing Int
 testPing _ _ = do
   say "testPing"
-  reply 1 ()
-
-newMessage :: SupervisorServerState -> CallHandler () NewMessage MessageReply
-newMessage (mainSeqMVar) _ (NewMessage d lastSyncPoint) = do
-  -- append value
-  -- send new values
-
-  mainSeq <- liftIO $ modifyMVar mainSeqMVar $ \s -> do
-    let newS = s Seq.|> d
-    return (newS, newS)
-
-  let newValues = toList $ snd $
-        Seq.splitAt lastSyncPoint mainSeq
-  reply (newValues) ()
-
+  reply 2 ()

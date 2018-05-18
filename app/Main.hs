@@ -1,6 +1,12 @@
-import SingleServer.Supervisor
-import SingleServer.LeafNode
-import SingleServer.Types
+import qualified SingleServer.Supervisor as SS
+import qualified SingleServer.LeafNode   as SS
+import qualified SingleServer.Types      as SS
+
+import qualified LinkList.Supervisor as LL
+import qualified LinkList.LeafNode   as LL
+import qualified LinkList.Types      as LL
+
+import Utils
 
 import Options.Applicative
 import Data.Semigroup ((<>))
@@ -41,8 +47,9 @@ main = do
   node <- newLocalNode t initRemoteTable
 
   case (configForServer iArgs) of
-    Nothing -> startLeafNode node
+    Nothing -> LL.startLeafNode node
     (Just (fileName,cd)) -> do
       fc <- liftIO $ readFile fileName
       let nodeList = read fc
-      startSupervisorNode node cd nodeList
+          serverIp = (myHostName iArgs, myPort iArgs)
+      LL.startSupervisorNode node cd nodeList serverIp

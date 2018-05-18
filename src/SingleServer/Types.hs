@@ -8,8 +8,8 @@ import Control.Distributed.Process ( ProcessId)
 import Data.Typeable
 import Data.Binary
 import GHC.Generics
+import Utils
 
-type ConfigData = (Int, Int, Int)
 data LeafInitData = LeafInitData
   { configData :: ConfigData
   , leafId :: Int
@@ -27,8 +27,6 @@ data TestPing = TestPing
   deriving (Generic, Typeable, Binary)
 
 type MessageReply = [Double]
-
-type NodesConfig = [(String, Int)]
 
 leafServerId = "leaf-server"
 supervisorServerId = "supervisor-server"

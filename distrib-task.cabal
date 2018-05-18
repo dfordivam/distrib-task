@@ -19,9 +19,13 @@ library
   -- exposed-modules:     
   -- other-modules:       
   -- other-extensions:    
-  exposed-modules:     SingleServer.Supervisor
+  exposed-modules:
+                       SingleServer.Supervisor
                        SingleServer.LeafNode
                        SingleServer.Types
+                       LinkList.Supervisor
+                       LinkList.LeafNode
+                       LinkList.Types
                        Utils
 
   build-depends:       base >=4.9 && <4.11
@@ -36,6 +40,7 @@ library
                        , binary
                        , time
                        , containers
+                       , vector
   hs-source-dirs:      src
   default-language:    Haskell2010
 
