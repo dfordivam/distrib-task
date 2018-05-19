@@ -26,6 +26,9 @@ library
                        LinkList.Supervisor
                        LinkList.LeafNode
                        LinkList.Types
+                       DenseMesh.Supervisor
+                       DenseMesh.LeafNode
+                       DenseMesh.Types
                        Utils
 
   build-depends:       base >=4.9 && <4.11

@@ -31,6 +31,7 @@ searchRemotePid :: String -> (String, Int) -> Process ProcessId
 searchRemotePid name addr@(h,p) = do
   let ep = EndPointAddress $ BS.pack $
                    h ++ ":" ++ (show p)
+  -- XXX is 0 required?
                    ++ ":0"
       srvId = NodeId ep
   whereisRemoteAsync srvId name
@@ -47,7 +48,16 @@ type NodesConfig = [(String, Int)]
 newtype LeafNodeId = LeafNodeId { unLeafNodeId :: Int }
   deriving (Generic, Typeable, Binary)
 
+data StartMessaging = StartMessaging
+  deriving (Generic, Typeable, Binary)
+
+data TestPing = TestPing
+  deriving (Generic, Typeable, Binary)
+
 getRngInit (_,_,s) (LeafNodeId i)
   = mkStdGen seed
   where seed = s * i * 15485863 -- a prime number
 
+leafServerId = "leaf-server"
+workServerId = "work-server"
+supervisorServerId = "supervisor-server"

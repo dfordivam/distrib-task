@@ -1,8 +1,8 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+module DenseMesh.Types where
 
-module SingleServer.Types where
 
 import Control.Distributed.Process ( ProcessId)
 import Data.Typeable
@@ -12,12 +12,11 @@ import Utils
 
 data LeafInitData = LeafInitData
   { configData :: ConfigData
-  , leafId :: Int
+  , leafId :: LeafNodeId
   , serverIp :: (String, Int)
+  , peers :: [(String, Int)]
   }
   deriving (Generic, Typeable, Binary)
 
-data NewMessage = NewMessage Double Int
+data NewMessage = NewMessage Double
   deriving (Generic, Typeable, Binary)
-
-type MessageReply = [Double]

@@ -6,6 +6,10 @@ import qualified LinkList.Supervisor as LL
 import qualified LinkList.LeafNode   as LL
 import qualified LinkList.Types      as LL
 
+import qualified DenseMesh.Supervisor as DM
+import qualified DenseMesh.LeafNode   as DM
+import qualified DenseMesh.Types      as DM
+
 import Utils
 
 import Options.Applicative
@@ -47,9 +51,9 @@ main = do
   node <- newLocalNode t initRemoteTable
 
   case (configForServer iArgs) of
-    Nothing -> LL.startLeafNode node
+    Nothing -> DM.startLeafNode node
     (Just (fileName,cd)) -> do
       fc <- liftIO $ readFile fileName
       let nodeList = read fc
           serverIp = (myHostName iArgs, myPort iArgs)
-      LL.startSupervisorNode node cd nodeList serverIp
+      DM.startSupervisorNode node cd nodeList serverIp

@@ -91,13 +91,3 @@ data LeafInitData = LeafInitData
   , peerIp :: (String, Int)
   }
   deriving (Generic, Typeable, Binary)
-
-data StartMessaging = StartMessaging
-  deriving (Generic, Typeable, Binary)
-
-data TestPing = TestPing
-  deriving (Generic, Typeable, Binary)
-
-leafServerId = "leaf-server"
-workServerId = "work-server"
-supervisorServerId = "supervisor-server"
