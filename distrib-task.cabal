@@ -29,12 +29,16 @@ library
                        DenseMesh.Supervisor
                        DenseMesh.LeafNode
                        DenseMesh.Types
+                       SafeRing.Supervisor
+                       SafeRing.LeafNode
+                       SafeRing.Types
                        Utils
 
   build-depends:       base >=4.9 && <4.11
                        , distributed-process
                        , distributed-process-client-server
                        , distributed-process-extras
+                       , distributed-process-async
                        , network-transport-tcp
                        , network-transport
                        , optparse-applicative

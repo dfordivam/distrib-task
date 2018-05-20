@@ -46,7 +46,7 @@ type ConfigData = (Int, Int, Int)
 type NodesConfig = [(String, Int)]
 
 newtype LeafNodeId = LeafNodeId { unLeafNodeId :: Int }
-  deriving (Generic, Typeable, Binary)
+  deriving (Generic, Typeable, Binary, Eq, Ord, Show)
 
 data StartMessaging = StartMessaging
   deriving (Generic, Typeable, Binary)

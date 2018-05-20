@@ -10,6 +10,10 @@ import qualified DenseMesh.Supervisor as DM
 import qualified DenseMesh.LeafNode   as DM
 import qualified DenseMesh.Types      as DM
 
+import qualified SafeRing.Supervisor as SR
+import qualified SafeRing.LeafNode   as SR
+import qualified SafeRing.Types      as SR
+
 import Utils
 
 import Options.Applicative
@@ -51,9 +55,9 @@ main = do
   node <- newLocalNode t initRemoteTable
 
   case (configForServer iArgs) of
-    Nothing -> DM.startLeafNode node
+    Nothing -> SR.startLeafNode node
     (Just (fileName,cd)) -> do
       fc <- liftIO $ readFile fileName
       let nodeList = read fc
           serverIp = (myHostName iArgs, myPort iArgs)
-      DM.startSupervisorNode node cd nodeList serverIp
+      SR.startSupervisorNode node cd nodeList serverIp
