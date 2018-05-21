@@ -37,6 +37,8 @@ import Control.Distributed.Process ( spawnLocal
                                    , register
                                    , catchExit
                                    , die
+                                   , exit
+                                   , receiveChanTimeout
                                    , processNodeId
                                    , whereisRemoteAsync
                                    , Process
@@ -61,7 +63,8 @@ import Control.Monad (forever, forM_, void)
 import Network.Transport     (EndPointAddress(..))
 
 import qualified Data.Map as Map
-import System.Random (mkStdGen, random)
+import System.Random (mkStdGen, random
+                     , StdGen)
 import Data.Time.Clock (getCurrentTime
                        , addUTCTime)
 
@@ -106,10 +109,12 @@ leafClient leafData = do
   say "Starting Leaf client"
 
   (sendFwdMsg, recvMsgChan) <- newChan
+  (sendRecReq, recReqRecvChan) <- newChan
   let
     workServer = statelessProcess
       { apiHandlers =
         [handleCall (messageFromPeer sendFwdMsg)
+        , handleCast (reconnectReqHandler sendRecReq)
         , handleCall testPing]
       , unhandledMessagePolicy = Log
       }
@@ -120,20 +125,36 @@ leafClient leafData = do
     serve () (statelessInit Infinity) workServer
   register workServerId wpid
 
-  leafMainClient recvMsgChan leafData
+  leafMainClient recvMsgChan recReqRecvChan leafData
 
 testPing :: CallHandler _ TestPing Int
 testPing s _ = do
   say "testPing"
   reply 3 s
 
+reconnectReqHandler :: _ -> CastHandler _ ReconnectRequest
+reconnectReqHandler recReqRecvChan _ r = do
+  sendChan recReqRecvChan r
+  continue ()
+
 messageFromPeer :: _ -> CallHandler _ MessageList ()
 messageFromPeer fwdMsgChan _ (MessageList ms) = do
   sendChan fwdMsgChan ms
   reply () ()
 
-leafMainClient recvMsgChan leafData = do
+data FwdMsgResult
+  = SendTimeOver
+  | Reconnect (LeafNodeId, (String,Int))
+    (StdGen, TimePulse)
+  | RetryNextPeer ([(LeafNodeId, TimePulse, Double)]
+                  , (StdGen, TimePulse))
+
+leafMainClient recvMsgChan recReqRecvChan leafData = do
   startTime <- liftIO $ getCurrentTime
+  let
+    peers = peerList leafData
+    prevPeer = head $ reverse peers
+  prevNode <- searchRemotePid workServerId (snd prevPeer)
 
   (sendAddDb, recvAddDb) <- newChan
   let
@@ -142,7 +163,6 @@ leafMainClient recvMsgChan leafData = do
     sendEndTime = addUTCTime
       (fromIntegral $ sendDuration)
       startTime
-    peers = peerList leafData
     ---------------------------------------------------
     connectToPeer peer maybeMsg rngt = do
       say $ "Searching peer: " ++ (show peer)
@@ -160,9 +180,12 @@ leafMainClient recvMsgChan leafData = do
         (AsyncDone ppid) ->
           leafMessagePeer peerId ppid maybeMsg rngt
             >>= \case
-              (Left (msg,rng1)) ->
+              (RetryNextPeer (msg,rng1)) ->
                 connectToPeer nextPeer (Just msg) rng1
-              _ -> return ()
+              (Reconnect prevPeer rng2) -> do
+                say "Reconnecting"
+                connectToPeer prevPeer Nothing rng2
+              SendTimeOver -> return ()
               -- Assume work is done if no exception
         _ ->
           connectToPeer nextPeer maybeMsg rngt
@@ -177,7 +200,14 @@ leafMainClient recvMsgChan leafData = do
           (msg, newRngt) <- case maybeMsg of
             Nothing -> do
               -- Everything blocks if no message is received
+              rcpid <- spawnLocal $ do
+                liftIO $ threadDelay receiveTimeout
+                cast prevNode
+                  (ReconnectRequest $ (leafId leafData
+                    , selfIp leafData))
+                say "Sent reconnect request"
               m <- receiveChan recvMsgChan
+              exit rcpid ()
               let (d, newRng) = random $ fst rngt
                   (m1,_) = break
                     (\(i,_,_) -> i == peerId) m
@@ -199,9 +229,16 @@ leafMainClient recvMsgChan leafData = do
           t <- liftIO $ getCurrentTime
           if sendEndTime > t
             then case status of
-              (AsyncDone _) -> fwdMsgLoop Nothing newRngt
-              _ -> return $ Left (msg, newRngt)
-            else return (Right ())
+              (AsyncDone _) -> do
+                recReq <- receiveChanTimeout 0
+                  recReqRecvChan
+                case recReq of
+                  Nothing ->
+                    fwdMsgLoop Nothing newRngt
+                  (Just (ReconnectRequest r)) ->
+                    return $ Reconnect r newRngt
+              _ -> return $ RetryNextPeer (msg, newRngt)
+            else return SendTimeOver
 
       say "Starting fwdMsgLoop"
       fwdMsgLoop maybeMsg rngt

@@ -29,10 +29,16 @@ data MessageList =
 data LeafInitData = LeafInitData
   { configData :: ConfigData
   , leafId :: LeafNodeId
+  , selfIp :: (String, Int)
   , serverIp :: (String, Int)
   , peerList :: [(LeafNodeId, (String, Int))]
   }
   deriving (Generic, Typeable, Binary)
 
+data ReconnectRequest =
+  ReconnectRequest (LeafNodeId, (String,Int))
+  deriving (Generic, Typeable, Binary)
+
 peerSearchTimeout = timeToMicros Seconds 2
 peerCallTimeout = timeToMicros Seconds 2
+receiveTimeout = timeToMicros Seconds 5

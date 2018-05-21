@@ -76,7 +76,7 @@ startSupervisorNode node cd nodeList@(n:n2:n3:ns) serverIp = runProcess node $ d
     let peerList = (drop 1 rs) ++ ps
         (ps,rs) = break (\(a,_) -> i == a) nodes
     (_ :: ()) <- call leafPid
-      (LeafInitData cd i serverIp peerList)
+      (LeafInitData cd i leaf serverIp peerList)
     return ()
 
   liftIO $ threadDelay (timeToMicros Seconds ((\(s,w,_) -> s + w) cd))
