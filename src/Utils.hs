@@ -61,3 +61,8 @@ getRngInit (_,_,s) (LeafNodeId i)
 leafServerId = "leaf-server"
 workServerId = "work-server"
 supervisorServerId = "supervisor-server"
+
+rotateExcl :: (Eq k) => k -> [(k,l)] -> [(k,l)]
+rotateExcl _ [] = error "Empty list in rotateExcl"
+rotateExcl k ks = ks2 ++ ks1
+  where (ks1, _:ks2) = break (\(i,_) -> i == k) ks

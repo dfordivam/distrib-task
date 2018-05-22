@@ -32,6 +32,9 @@ library
                        SafeRing.Supervisor
                        SafeRing.LeafNode
                        SafeRing.Types
+                       HierRing.Supervisor
+                       HierRing.LeafNode
+                       HierRing.Types
                        Utils
 
   build-depends:       base >=4.9 && <4.11
