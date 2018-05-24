@@ -8,13 +8,11 @@ import Control.Distributed.Process ( ProcessId)
 import Data.Typeable
 import Data.Binary
 import GHC.Generics
-import Utils
+import CommonCode
 
 data LeafInitData = LeafInitData
   { configData :: ConfigData
   , leafId :: LeafNodeId
-  , serverIp :: (String, Int)
-  , peers :: [(String, Int)]
   }
   deriving (Generic, Typeable, Binary)
 

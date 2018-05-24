@@ -10,7 +10,7 @@ import Control.Distributed.Process ( ProcessId)
 import Data.Typeable
 import Data.Binary
 import GHC.Generics
-import Utils
+import CommonCode
 
 -- Avoid stop of messaging in network failures
 --
@@ -29,9 +29,6 @@ data MessageList =
 data LeafInitData = LeafInitData
   { configData :: ConfigData
   , leafId :: LeafNodeId
-  , selfIp :: (String, Int)
-  , serverIp :: (String, Int)
-  , peerList :: [(LeafNodeId, (String, Int))]
   }
   deriving (Generic, Typeable, Binary)
 

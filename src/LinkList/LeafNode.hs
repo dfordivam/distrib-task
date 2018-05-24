@@ -4,7 +4,7 @@ module LinkList.LeafNode
   (startLeafNode)
   where
 
-import Utils
+import CommonCode
 import LinkList.Types
 
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
@@ -31,7 +31,7 @@ import Control.Distributed.Process ( spawnLocal
                                    , newChan
                                    , sendChan
                                    , receiveChan
-                                   , expectTimeout
+                                   , expect
                                    , register
                                    , monitorPort
                                    , sendPortId
@@ -65,56 +65,12 @@ import Data.Time.Clock (getCurrentTime
 -- A leaf node connects to one peer and broadcasts the message to it
 -- the lead node server accepts broadcast message from another peer
 
--- STEPS overview
--- Setup server and wait for supervisor to connect
--- Get details (time, seed, peer) from supervisor
--- Starts client and work-server process, and connect to the peer
--- inform supervisor on success
--- Wait for kick-off signal from supervisor
--- Do message exchange with peer, serve another peer
--- After timeout print sum, and exit client and work-server process
-
 startLeafNode :: LocalNode -> IO ()
-startLeafNode node = runProcess node $ do
-  say "Starting Leaf server"
-  pId <- spawnLocal $ serve () (initServerState) leafServer
-  register leafServerId pId
-  say $ "Server launched at: " ++ show (nodeAddress . processNodeId $ pId)
-  liftIO $ forever $ threadDelay 1000000000
-
-initServerState _ = do
-  return $ InitOk Nothing Infinity
-
-type LeafServerState = Maybe (LeafInitData, ProcessId)
-
--- Backgroud server, always running
--- To get messages from supervisor
-leafServer = defaultProcess
-  { apiHandlers = [ handleCall initClient
-                  , handleCast startClient
-                  ]
-  , infoHandlers = []
-  , unhandledMessagePolicy = Log
-  }
-
-initClient :: CallHandler LeafServerState LeafInitData ()
-initClient _ p = do
-  pid <- spawnLocal $ leafClient p
-  reply () (Just $ (p, pid))
-
-startClient :: CastHandler LeafServerState StartMessaging
-startClient Nothing s = do
-  say "Error: startClient without data"
-  continue Nothing
-
-startClient s@(Just (_, pid)) _ = do
-  send pid ()
-  continue s
+startLeafNode = startLeafNodeCommon leafClient
 
 leafClient :: LeafInitData -> Process ()
 leafClient leafData = do
   say "Starting Leaf client"
-  say "Starting Leaf-work server"
 
   (sendFwdMsg, recvFwdMsg) <- newChan
   (sendAddDb, recvAddDb) <- newChan
@@ -126,18 +82,21 @@ leafClient leafData = do
                      (sendFwdMsg
                      , sendAddDb
                      , leafData))
-        , handleCall testPing]
+        , handleCall testPing2]
       , infoHandlers = []
       , unhandledMessagePolicy = Log
       }
 
-  wpid <- spawnLocal $ serve
+  register workServerId
+    =<< (spawnLocal $ serve
     (getRngInit (configData leafData) (leafId leafData))
-    initWorkServer workServer
-  register workServerId wpid
+    initWorkServer workServer)
 
-  ppid <- searchRemotePid workServerId (peerIp leafData)
-  spid <- searchRemotePid supervisorServerId (serverIp leafData)
+  let peer = snd $ head $ rotateExcl (leafId leafData)
+        (nodesList $ configData leafData)
+  ppid <- searchRemotePid workServerId peer
+  spid <- searchRemotePid supervisorServerId
+    (serverIp $ configData leafData)
   say $ "Doing call to:" ++ (show ppid)
   say $ "Doing call to:" ++ (show spid)
   working1 <- call ppid (TestPing)
@@ -145,15 +104,8 @@ leafClient leafData = do
   say $ "Did call to:" ++ (show $ (working1 :: Int))
   say $ "Did call to:" ++ (show $ (working2 :: Int))
 
-  -- Wait for StartMessaging
-  reply <- expectTimeout 10000000
-  say $ "Got reply:" ++ (show reply)
-  case (reply :: Maybe ()) of
-    Nothing ->
-      say $ "timeout from leafclient: "
-        ++ (show $ unLeafNodeId $ leafId leafData)
-    _ -> do
-      leafClientWork leafData ppid (recvFwdMsg, recvAddDb)
+  (_ :: StartMessaging) <- expect
+  leafClientWork leafData ppid (recvFwdMsg, recvAddDb)
 
 -- start working
 -- print result and gracefully exit?
@@ -162,19 +114,18 @@ leafClientWork leafData ppid (recvFwdMsg, recvAddDb) = do
   startTime <- liftIO $ getCurrentTime
 
   let
+    totalNodes = (length $ nodesList $ configData leafData)
     myId = unLeafNodeId (leafId leafData)
     firstMsg = MessageList [(leafId leafData, TimePulse 0, 1)]
 
   dbRef <- liftIO $ do
-    vec <- MUV.new (totalNodes leafData)
+    vec <- MUV.new totalNodes
     MUV.write vec (myId - 1) 1.0 -- Can be obtained from rng also
     newIORef $ Seq.singleton vec
 
   let
-    (sendDuration, waitDuration, _)
-      = configData leafData
     sendEndTime = addUTCTime
-      (fromIntegral $ sendDuration)
+      (fromIntegral $ sendDuration $ configData leafData)
       startTime
 
     fwdMsgLoop = do
@@ -189,7 +140,7 @@ leafClientWork leafData ppid (recvFwdMsg, recvAddDb) = do
     addToDb = do
       msg <- receiveChan recvAddDb
       liftIO $ do
-        vec <- MUV.new (totalNodes leafData)
+        vec <- MUV.new totalNodes
         mapM (modDb vec) msg
       addToDb
 
@@ -209,7 +160,7 @@ leafClientWork leafData ppid (recvFwdMsg, recvAddDb) = do
   say "Sending trigger"
   cast ppid firstMsg
 
-  liftIO $ threadDelay (timeToMicros Seconds (sendDuration + waitDuration))
+  liftIO $ threadDelay (timeToMicros Seconds (sendDuration $ configData leafData))
 
   allVec <- liftIO $ do
     db <- readIORef dbRef
@@ -217,19 +168,16 @@ leafClientWork leafData ppid (recvFwdMsg, recvAddDb) = do
   -- Calculate sum and exit
   let s = sum $ map (uncurry (*)) $ zip [1..] allValues
       allValues = filter (/= 0.0) $ concat $ map UV.toList allVec
-  say $ "leafClient Result: "
-    ++ (show $ unLeafNodeId $ leafId leafData)
-    ++ " => " ++ (show (length allValues, s))
-  return ()
+  liftIO $ printResult allValues (leafId leafData)
 
 type WorkServerDb = Seq.Seq (MUV.IOVector Double)
 
 initWorkServer rng = do
   return $ InitOk (rng, TimePulse 0) Infinity
 
-testPing :: CallHandler _ TestPing Int
-testPing s _ = do
-  say "testPing"
+testPing2 :: CallHandler _ TestPing Int
+testPing2 s _ = do
+  say "testPing2"
   reply 3 s
 
 messageFromPeer :: _ -> CastHandler _ MessageList
@@ -239,8 +187,9 @@ messageFromPeer (fwdMsgChan, addDbChan, leafData)
   let (d, newRng) = random rng
       myMessage = (leafId leafData, newT, d)
       newT = TimePulse $ (unTimePulse t) + 1
+      totalNodes = (length $ nodesList $ configData leafData)
 
   sendChan fwdMsgChan
-    (MessageList $ myMessage : take ((totalNodes leafData) - 2) ms)
+    (MessageList $ myMessage : take (totalNodes - 2) ms)
   sendChan addDbChan (myMessage : ms)
   continue (newRng, newT)

@@ -4,7 +4,7 @@ module SingleServer.Supervisor
   where
 
 import SingleServer.Types
-import Utils
+import CommonCode
 
 import Control.Distributed.Process.ManagedProcess.Client (callChan, cast)
 import Control.Distributed.Process.ManagedProcess ( serve
@@ -15,6 +15,8 @@ import Control.Distributed.Process.ManagedProcess ( serve
                                                   , handleCast
                                                   , handleCall
                                                   , handleInfo
+                                                  , statelessProcess
+                                                  , statelessInit
                                                   , InitResult(..)
                                                   , UnhandledMessagePolicy(..)
                                                   , ChannelHandler
@@ -55,71 +57,33 @@ import qualified Data.Sequence as Seq
 
 -- Supervisor acts as both a client and a server
 -- It first discovers all nodes and establishes connection with them
--- Then it kicks the leaf nodes to send messages
+-- After receiving ping from all nodes, it kick-start the leaf nodes communication
 -- this time it acts as a server, receiving messages and sending updated message list
+
 
 startSupervisorNode
   :: LocalNode
   -> ConfigData
-  -> NodesConfig
-  -> (String, Int)
   -> IO ()
-startSupervisorNode node cd nodeList serverIp = runProcess node $ do
-  spid <- spawnLocal supervisorServer
-  register supervisorServerId spid
-
-  kickSignalMVar <- liftIO $ newEmptyMVar
-  initDoneMVar <- liftIO $ newMVar (length nodeList)
-
-  forM (zip [1..] nodeList) $ \(i, leaf) -> spawnLocal $ do
-    say $ "Searching leaf: " ++ (show leaf)
-    leafPid <- searchRemotePid leafServerId leaf
-    say $ "Found leaf: " ++ (show leaf)
-    (_ :: ()) <- call leafPid
-      (LeafInitData cd i serverIp)
-    -- Indicate if all leaves init correctly
-    liftIO $ modifyMVar_ initDoneMVar (\c -> return (c - 1))
-
-    -- wait for kick signal
-    liftIO $ readMVar kickSignalMVar
-
-    -- start nodes
-    say $ "Start messaging: " ++ (show leaf)
-    cast leafPid (StartMessaging)
-
-  let waitLoop = do
-        c <- readMVar initDoneMVar
-        if c > 0
-          then threadDelay 500000 >> waitLoop
-          else putMVar kickSignalMVar ()
-  liftIO $ waitLoop
-
-  liftIO $ threadDelay (timeToMicros Seconds ((\(s,w,_) -> s + w) cd))
+startSupervisorNode =
+  startSupervisorNodeCommon supervisorServer
+  (\cd i -> LeafInitData cd i)
 
 supervisorServer :: Process ()
 supervisorServer = do
   s <- liftIO $ newMVar $ Seq.empty
   let
-    server = defaultProcess
-      { apiHandlers = [handleCall (newMessage s), handleCall testPing]
-      , infoHandlers = []
+    server = statelessProcess
+      { apiHandlers = [handleCall (newMessage s)
+                      , handleCall testPing]
       , unhandledMessagePolicy = Log
       }
   say "Starting supervisor-server"
-  serve () initServerState server
+  serve () (statelessInit Infinity) server
 
-initServerState _ = do
-  return $ InitOk () NoDelay
-
-type SupervisorServerState =
-  (MVar (Seq.Seq Double))
-
-testPing :: CallHandler () TestPing Int
-testPing _ _ = do
-  say "testPing"
-  reply 1 ()
-
-newMessage :: SupervisorServerState -> CallHandler () NewMessage MessageReply
+newMessage
+  :: (MVar (Seq.Seq Double))
+  -> CallHandler () NewMessage MessageReply
 newMessage (mainSeqMVar) _ (NewMessage d lastSyncPoint) = do
   -- append value
   -- send new values

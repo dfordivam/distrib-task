@@ -4,7 +4,7 @@ module HierRing.Supervisor
   where
 
 import HierRing.Types
-import Utils
+import CommonCode
 
 import Control.Distributed.Process.ManagedProcess.Client (callChan, cast)
 import Control.Distributed.Process.ManagedProcess ( serve
@@ -50,6 +50,7 @@ import Control.Concurrent (threadDelay
                           , readMVar)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (void, forever, forM)
+import Data.List (find)
 
 -- Supervisor acts as both a client and a server
 -- It first discovers all nodes and establishes connection with them
@@ -59,50 +60,23 @@ import Control.Monad (void, forever, forM)
 startSupervisorNode
   :: LocalNode
   -> ConfigData
-  -> NodesConfig
-  -> (String, Int)
   -> IO ()
-startSupervisorNode node cd nodeList@(n:n2:n3:ns) serverIp = runProcess node $ do
-  spid <- spawnLocal supervisorServer
-  register supervisorServerId spid
+startSupervisorNode =
+  -- Ensure min number of nodes
+  startSupervisorNodeCommon
+  supervisorServerSimple f
+  where
+    f cd i = LeafInitData cd i clId selfIp nextCls peers
+      where
+        clId = ClusterId $
+          1 + (mod (unLeafNodeId i) nodesPerCluster)
+        Just selfIp = snd <$> find ((== i) . fst) (nodesList cd)
+        cls = zip (map ClusterId [1..])
+          $ chunkList nodesPerCluster (nodesList cd)
 
-  let
-    nodes = zip (map LeafNodeId [1..]) nodeList
-    cls = zip (map ClusterId [1..])
-      $ chunkList nodesPerCluster nodes
-
-  forM cls $ \(clsId, nodes) -> do
-    let (nextCls1:_) = rotateExcl clsId cls
+        (nextCls1:_) = rotateExcl clId cls
         nextCls = (\(a,ns) -> (a, head ns)) nextCls1
-    forM nodes $ \(i, leaf) -> spawnLocal $ do
-      say $ "Searching leaf: " ++ (show leaf)
-      leafPid <- searchRemotePid leafServerId leaf
-      say $ "Found leaf: " ++ (show leaf)
-      let peerList = rotateExcl i nodes
-      (_ :: ()) <- call leafPid
-        (LeafInitData cd i clsId leaf serverIp
-         nextCls peerList)
-      return ()
-
-  liftIO $ threadDelay (timeToMicros Seconds ((\(s,w,_) -> s + w) cd))
-
-startSupervisorNode node cd nodeList@(n:n2:[]) serverIp =
-  putStrLn "Need atleast three nodes"
-
-supervisorServer :: Process ()
-supervisorServer = do
-  let
-    server = statelessProcess
-      { apiHandlers = [handleCall testPing]
-      , unhandledMessagePolicy = Log
-      }
-  say "Starting supervisor-server"
-  serve () (statelessInit Infinity) server
-
-testPing :: CallHandler () TestPing Int
-testPing _ _ = do
-  say "testPing"
-  reply 2 ()
+        Just peers = snd <$> find ((== clId) . fst) cls
 
 chunkList :: Int -> [a] -> [[a]]
 chunkList _ [] = []

@@ -4,7 +4,7 @@ module DenseMesh.LeafNode
   (startLeafNode)
   where
 
-import Utils
+import CommonCode
 import DenseMesh.Types
 
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
@@ -18,6 +18,8 @@ import Control.Distributed.Process.ManagedProcess ( serve
                                                   , handleCast
                                                   , handleCall
                                                   , handleInfo
+                                                  , statelessProcess
+                                                  , statelessInit
                                                   , InitResult(..)
                                                   , UnhandledMessagePolicy(..)
                                                   , ChannelHandler
@@ -32,6 +34,7 @@ import Control.Distributed.Process ( spawnLocal
                                    , sendChan
                                    , receiveChan
                                    , expectTimeout
+                                   , expect
                                    , register
                                    , monitorPort
                                    , sendPortId
@@ -52,7 +55,7 @@ import Control.Concurrent (threadDelay, MVar
                           , newMVar, readMVar
                           , modifyMVar_)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad (forever, forM_, void)
+import Control.Monad (forever, forM_, void, when)
 import Network.Transport     (EndPointAddress(..))
 
 import Data.IORef
@@ -64,51 +67,16 @@ import Data.Time.Clock (getCurrentTime
 -- Simple architecture, with lot of redundancy
 
 startLeafNode :: LocalNode -> IO ()
-startLeafNode node = runProcess node $ do
-  say "Starting Leaf server"
-  pId <- spawnLocal $ serve () (initServerState) leafServer
-  register leafServerId pId
-  say $ "Server launched at: " ++ show (nodeAddress . processNodeId $ pId)
-  liftIO $ forever $ threadDelay 1000000000
-
-initServerState _ = do
-  return $ InitOk Nothing Infinity
-
-type LeafServerState = Maybe (LeafInitData, ProcessId)
-
--- Backgroud server, always running
--- To get messages from supervisor
-leafServer = defaultProcess
-  { apiHandlers = [ handleCall initClient
-                  , handleCast startClient
-                  ]
-  , infoHandlers = []
-  , unhandledMessagePolicy = Log
-  }
-
-initClient :: CallHandler LeafServerState LeafInitData ()
-initClient _ p = do
-  pid <- spawnLocal $ leafClient p
-  reply () (Just $ (p, pid))
-
-startClient :: CastHandler LeafServerState StartMessaging
-startClient Nothing s = do
-  say "Error: startClient without data"
-  continue Nothing
-
-startClient s@(Just (_, pid)) _ = do
-  send pid ()
-  continue s
+startLeafNode = startLeafNodeCommon leafClient
 
 leafClient :: LeafInitData -> Process ()
 leafClient leafData = do
   say "Starting Leaf client"
-  say "Starting Leaf-work server"
 
   dbRef <- liftIO $ newMVar []
 
   let
-    workServer = defaultProcess
+    workServer = statelessProcess
       { apiHandlers =
         [handleCast (messageFromPeer dbRef)
         , handleCall testPing]
@@ -116,41 +84,28 @@ leafClient leafData = do
       , unhandledMessagePolicy = Log
       }
 
-  wpid <- spawnLocal $ serve
-    (getRngInit (configData leafData) (leafId leafData))
-    initWorkServer workServer
-  register workServerId wpid
+  register workServerId
+    =<< (spawnLocal $ serve () (statelessInit Infinity) workServer)
 
-  ppids <- mapM (searchRemotePid workServerId) (peers leafData)
-  spid <- searchRemotePid supervisorServerId (serverIp leafData)
-  say $ "Doing call to peers"
-  say $ "Doing call to:" ++ (show spid)
-  working1 <- mapM ((flip call) TestPing) ppids
-  working2 <- call spid (TestPing)
-  say $ "Did call to:" ++ (show $ (working1 :: [Int]))
-  say $ "Did call to:" ++ (show $ (working2 :: Int))
+  let peers = map snd $ nodesList $ configData leafData
+  ppids <- mapM (searchRemotePid workServerId) peers
+  spid <- searchRemotePid supervisorServerId
+    (serverIp $ configData leafData)
 
-  -- Wait for StartMessaging
-  reply <- expectTimeout 10000000
-  say $ "Got reply:" ++ (show reply)
-  case (reply :: Maybe ()) of
-    Nothing ->
-      say $ "timeout from leafclient: "
-        ++ (show $ unLeafNodeId $ leafId leafData)
-    _ -> do
-      leafClientWork leafData ppids dbRef
+  say $ "Doing ping to peers"
+  (_ :: [Int]) <- mapM ((flip call) TestPing) ppids
+  (_ :: Int) <- call spid (TestPing)
 
--- start working
--- print result and gracefully exit?
+  (_ :: StartMessaging) <- expect
+  leafClientWork leafData ppids dbRef
+
 leafClientWork leafData ppids dbRef = do
   say "starting leafClientWork"
   startTime <- liftIO $ getCurrentTime
 
   let
-    (sendDuration, waitDuration, _)
-      = configData leafData
     sendEndTime = addUTCTime
-      (fromIntegral $ sendDuration)
+      (fromIntegral $ sendDuration $ configData leafData)
       startTime
 
     sendMsgLoop rng = do
@@ -158,38 +113,19 @@ leafClientWork leafData ppids dbRef = do
       let (d, newRng) = random rng
           msg = NewMessage d
       -- Broadcast messages
-      mapM ((flip cast) msg) ppids
+      mapM_ ((flip cast) msg) ppids
       t <- liftIO $ getCurrentTime
-      if sendEndTime > t
-        then sendMsgLoop newRng
-        else return ()
+      when (sendEndTime > t) $ sendMsgLoop newRng
 
-  spawnLocal $ sendMsgLoop
+  sendMsgLoop
     (getRngInit (configData leafData) (leafId leafData))
-
-  liftIO $ threadDelay (timeToMicros Seconds (sendDuration + waitDuration))
 
   allValues <- liftIO $ do
     readMVar dbRef
-  -- Calculate sum and exit
-  let s = sum $ map (uncurry (*)) $ zip [1..] allValues
-  say $ "leafClient Result: "
-    ++ (show $ unLeafNodeId $ leafId leafData)
-    ++ " => " ++ (show (length allValues, s))
-  return ()
 
-
-initWorkServer _ = do
-  return $ InitOk () Infinity
-
-testPing :: CallHandler _ TestPing Int
-testPing s _ = do
-  say "testPing"
-  reply 4 s
+  liftIO $ printResult allValues (leafId leafData)
 
 messageFromPeer :: _ -> CastHandler _ NewMessage
-messageFromPeer (dbRef)
-  _ (NewMessage d) = do
-
+messageFromPeer (dbRef) _ (NewMessage d) = do
   liftIO $ modifyMVar_ dbRef (\ds -> return $ d:ds)
   continue ()

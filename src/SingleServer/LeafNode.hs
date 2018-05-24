@@ -1,8 +1,10 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module SingleServer.LeafNode
   (startLeafNode)
   where
 
-import Utils
+import CommonCode
 import SingleServer.Types
 
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
@@ -25,7 +27,7 @@ import Control.Distributed.Process.ManagedProcess ( serve
 import Control.Distributed.Process ( spawnLocal
                                    , say
                                    , send
-                                   , expectTimeout
+                                   , expect
                                    , register
                                    , monitorPort
                                    , sendPortId
@@ -64,73 +66,30 @@ import Data.Time.Clock (getCurrentTime
 -- After timeout print sum, and exit client process
 
 startLeafNode :: LocalNode -> IO ()
-startLeafNode node = runProcess node $ do
-  say "Starting Leaf server"
-  pId <- spawnLocal $ serve () (initServerState) leafServer
-  register leafServerId pId
-  say $ "Server launched at: " ++ show (nodeAddress . processNodeId $ pId)
-  liftIO $ forever $ threadDelay 1000000000
-
-initServerState _ = do
-  return $ InitOk Nothing Infinity
-
-type LeafServerState = Maybe (LeafInitData, ProcessId)
-
--- Backgroud server, always running
--- To get messages from supervisor
-leafServer = defaultProcess
-  { apiHandlers = [ handleCall initClient
-                  , handleCast startClient
-                  ]
-  , infoHandlers = []
-  , unhandledMessagePolicy = Log
-  }
-
-initClient :: CallHandler LeafServerState LeafInitData ()
-initClient _ p = do
-  pid <- spawnLocal $ leafClient p
-  reply () (Just $ (p, pid))
-
-startClient :: CastHandler LeafServerState StartMessaging
-startClient Nothing s = do
-  say "Error: startClient without data"
-  continue Nothing
-
-startClient s@(Just (_, pid)) _ = do
-  send pid ()
-  continue s
+startLeafNode = startLeafNodeCommon leafClient
 
 leafClient :: LeafInitData -> Process ()
 leafClient leafData = do
   say "Starting Leaf client"
-  spid <- searchRemotePid supervisorServerId (serverIp leafData)
+  spid <- searchRemotePid supervisorServerId
+    (serverIp $ configData leafData)
   say $ "Doing call to:" ++ (show spid)
   working <- call spid (TestPing)
-  say $ "Did call to:" ++ (show $ (working :: Int))
-  reply <- expectTimeout 10000000
-  say $ "Got reply:" ++ (show reply)
-  case (reply :: Maybe ()) of
-    Nothing ->
-      say $ "timeout from leafclient: "
-        ++ (show $ leafId leafData)
-    _ -> do
-      leafClientWork leafData spid
+  say $ "Got ping response:" ++ (show $ (working :: Int))
+  (_ :: StartMessaging) <- expect
+  leafClientWork leafData spid
 
--- start working
--- print result and gracefully exit?
-leafClientWork leafData pid = do
+leafClientWork leafData spid = do
   startTime <- liftIO $ getCurrentTime
   let
-    (sendDuration, waitDuration, _)
-      = configData leafData
     sendEndTime = addUTCTime
-      (fromIntegral $ sendDuration)
+      (fromIntegral $ sendDuration $ configData leafData)
       startTime
 
     mainLoop (rng, old) = do
       let (d, newRng) = random rng
       -- Send message and sync with server
-      newValues <- call pid (NewMessage d (length old))
+      newValues <- call spid (NewMessage d (length old))
       let
         new :: [Double]
         new = old ++ newValues
@@ -138,11 +97,8 @@ leafClientWork leafData pid = do
       if sendEndTime > t
         then mainLoop (newRng, new)
         else return new
-    myId = LeafNodeId (leafId leafData)
-  allValues <- mainLoop ((getRngInit (configData leafData) myId), [])
-  -- Calculate sum and exit
-  let s = sum $ map (uncurry (*)) $ zip [1..] allValues
-  say $ "leafClient Result: "
-    ++ (show $ leafId leafData)
-    ++ " => " ++ (show (length allValues, s))
-  return ()
+
+  allValues <- mainLoop ((getRngInit (configData leafData) (leafId leafData))
+                        , [])
+
+  liftIO $ printResult allValues (leafId leafData)

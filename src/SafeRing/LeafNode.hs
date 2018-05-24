@@ -5,7 +5,7 @@ module SafeRing.LeafNode
   (startLeafNode)
   where
 
-import Utils
+import CommonCode
 import SafeRing.Types
 
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
@@ -39,6 +39,7 @@ import Control.Distributed.Process ( spawnLocal
                                    , die
                                    , exit
                                    , receiveChanTimeout
+                                   , expect
                                    , processNodeId
                                    , whereisRemoteAsync
                                    , Process
@@ -55,12 +56,14 @@ import Control.Distributed.Process.Node ( initRemoteTable
 import Control.Distributed.Process.Async (AsyncResult(..)
                                          , waitCancelTimeout
                                          , waitTimeout
+                                         , wait
                                          , async
                                          , task)
 import Control.Concurrent (threadDelay, MVar)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (forever, forM_, void)
 import Network.Transport     (EndPointAddress(..))
+import Data.List (find)
 
 import qualified Data.Map as Map
 import System.Random (mkStdGen, random
@@ -68,41 +71,9 @@ import System.Random (mkStdGen, random
 import Data.Time.Clock (getCurrentTime
                        , addUTCTime)
 
--- A leaf node connects to one peer and broadcasts the message to it
--- the lead node server accepts broadcast message from another peer
-
--- STEPS overview
--- Setup server and wait for supervisor to connect
--- Get details (time, seed, peer) from supervisor
--- Starts client and work-server process, and connect to the peer
--- inform supervisor on success
--- Wait for kick-off signal from supervisor
--- Do message exchange with peer, serve another peer
--- After timeout print sum, and exit client and work-server process
 
 startLeafNode :: LocalNode -> IO ()
-startLeafNode node = runProcess node $ do
-  say "Starting Leaf server"
-  pId <- spawnLocal $ serve ()
-    (statelessInit Infinity) leafServer
-  register leafServerId pId
-  say $ "Server launched at: " ++ show (nodeAddress . processNodeId $ pId)
-  liftIO $ forever $ threadDelay 1000000000
-
-type LeafServerState = Maybe (LeafInitData, ProcessId)
-
--- Backgroud server, always running
--- To get messages from supervisor
-leafServer = statelessProcess
-  { apiHandlers = [ handleCall initClient
-                  ]
-  , unhandledMessagePolicy = Log
-  }
-
-initClient :: CallHandler () LeafInitData ()
-initClient _ p = do
-  pid <- spawnLocal $ leafClient p
-  reply () ()
+startLeafNode = startLeafNodeCommon leafClient
 
 leafClient :: LeafInitData -> Process ()
 leafClient leafData = do
@@ -120,17 +91,13 @@ leafClient leafData = do
       }
 
   pid <- getSelfPid
-  wpid <- spawnLocal $ do
+  register workServerId
+    =<< (spawnLocal $ do
     link pid
-    serve () (statelessInit Infinity) workServer
-  register workServerId wpid
+    serve () (statelessInit Infinity) workServer)
 
+  (_ :: StartMessaging) <- expect
   leafMainClient recvMsgChan recReqRecvChan leafData
-
-testPing :: CallHandler _ TestPing Int
-testPing s _ = do
-  say "testPing"
-  reply 3 s
 
 reconnectReqHandler :: _ -> CastHandler _ ReconnectRequest
 reconnectReqHandler recReqRecvChan _ r = do
@@ -152,16 +119,18 @@ data FwdMsgResult
 leafMainClient recvMsgChan recReqRecvChan leafData = do
   startTime <- liftIO $ getCurrentTime
   let
-    peers = peerList leafData
+    Just selfIp = snd <$> find
+      ((== (leafId leafData)) . fst)
+      (nodesList $ configData leafData)
+    peers = rotateExcl (leafId leafData)
+      $ nodesList $ configData leafData
     prevPeer = head $ reverse peers
   prevNode <- searchRemotePid workServerId (snd prevPeer)
 
   (sendAddDb, recvAddDb) <- newChan
   let
-    (sendDuration, waitDuration, _)
-      = configData leafData
     sendEndTime = addUTCTime
-      (fromIntegral $ sendDuration)
+      (fromIntegral $ sendDuration $ configData leafData)
       startTime
     ---------------------------------------------------
     connectToPeer peer maybeMsg rngt = do
@@ -204,7 +173,7 @@ leafMainClient recvMsgChan recReqRecvChan leafData = do
                 liftIO $ threadDelay receiveTimeout
                 cast prevNode
                   (ReconnectRequest $ (leafId leafData
-                    , selfIp leafData))
+                    , selfIp))
                 say "Sent reconnect request"
               m <- receiveChan recvMsgChan
               exit rcpid ()
@@ -263,16 +232,12 @@ leafMainClient recvMsgChan recReqRecvChan leafData = do
   connectToPeer (head peers) (Just firstMsg) (newRng, TimePulse 0)
 
   sendChan sendAddDb Nothing
-  waitCancelTimeout (timeToMicros Seconds waitDuration) addTask
+  wait addTask
     >>= \case
-      (AsyncDone db) -> reportResult db leafData
-      _ -> do
-        say "timeout in addToDB"
-        return ()
+    (AsyncDone db) -> reportResult db leafData
+    _ -> return ()
 
 reportResult db leafData = do
   let s = sum $ map (uncurry (*)) $ zip [1..] allValues
       allValues = map snd $ Map.toList db
-  say $ "leafClient Result: "
-    ++ (show $ unLeafNodeId $ leafId leafData)
-    ++ " => " ++ (show (length allValues, s))
+  liftIO $ printResult allValues (leafId leafData)

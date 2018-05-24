@@ -5,7 +5,7 @@ module HierRing.LeafNode
   (startLeafNode)
   where
 
-import Utils
+import CommonCode
 import HierRing.Types
 
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
@@ -53,6 +53,7 @@ import Control.Distributed.Process.Node ( initRemoteTable
                                         , newLocalNode
                                         , LocalNode)
 import Control.Distributed.Process.Async (AsyncResult(..)
+                                         , wait
                                          , waitCancelTimeout
                                          , waitTimeout
                                          , async
@@ -92,28 +93,7 @@ import Data.Time.Clock (getCurrentTime
 -- the lead node server accepts message from another peer
 
 startLeafNode :: LocalNode -> IO ()
-startLeafNode node = runProcess node $ do
-  say "Starting Leaf server"
-  pId <- spawnLocal $ serve ()
-    (statelessInit Infinity) leafServer
-  register leafServerId pId
-  say $ "Server launched at: " ++ show (nodeAddress . processNodeId $ pId)
-  liftIO $ forever $ threadDelay 1000000000
-
-type LeafServerState = Maybe (LeafInitData, ProcessId)
-
--- Backgroud server, always running
--- To get messages from supervisor
-leafServer = statelessProcess
-  { apiHandlers = [ handleCall initClient
-                  ]
-  , unhandledMessagePolicy = Log
-  }
-
-initClient :: CallHandler () LeafInitData ()
-initClient _ p = do
-  pid <- spawnLocal $ leafClient p
-  reply () ()
+startLeafNode = startLeafNodeCommon leafClient
 
 leafClient :: LeafInitData -> Process ()
 leafClient leafData = do
@@ -152,11 +132,6 @@ leafClient leafData = do
   leafMainClient recvMsgChan recReqRecvChan
     getIncomingClsMsg sendOwnClsMsg leafData
 
-testPing :: CallHandler _ TestPing Int
-testPing s _ = do
-  say "testPing"
-  reply 3 s
-
 reconnectReqHandler :: _ -> CastHandler _ ReconnectRequest
 reconnectReqHandler recReqRecvChan _ r = do
   sendChan recReqRecvChan r
@@ -190,10 +165,11 @@ leafMainClient recvMsgChan recReqRecvChan
 
   (sendAddDb, recvAddDb) <- newChan
   let
-    (sendDuration, waitDuration, _)
-      = configData leafData
     sendEndTime = addUTCTime
-      (fromIntegral $ sendDuration)
+      (fromIntegral $ sendDuration $ configData leafData)
+      startTime
+    waitTime = addUTCTime
+      (fromIntegral $ waitDuration $ configData leafData)
       startTime
     ---------------------------------------------------
     connectToPeer peer maybeMsg rngt = do
@@ -324,19 +300,15 @@ leafMainClient recvMsgChan recReqRecvChan
   connectToPeer (head peers) (Just firstMsg) (newRng, TimePulse 0)
 
   sendChan sendAddDb Nothing
-  waitCancelTimeout (timeToMicros Seconds waitDuration) addTask
+  wait addTask
     >>= \case
-      (AsyncDone db) -> reportResult db leafData
-      _ -> do
-        say "timeout in addToDB"
-        return ()
+    (AsyncDone db) -> reportResult db leafData
+    _ -> return ()
 
 reportResult db leafData = do
   let s = sum $ map (uncurry (*)) $ zip [1..] allValues
       allValues = map snd $ Map.toList db
-  say $ "leafClient Result: "
-    ++ (show $ unLeafNodeId $ leafId leafData)
-    ++ " => " ++ (show (length allValues, s))
+  liftIO $ printResult allValues (leafId leafData)
 
 leafClusterClient recvClsMsg recvOwnClsMsg incomingClsMsg leafData = do
   say "Starting Leaf Cluster Client"
@@ -347,10 +319,8 @@ leafClusterClient recvClsMsg recvOwnClsMsg incomingClsMsg leafData = do
   say "connected to next cluster"
   let
     nextClsId = (fst $ nextCluster $ leafData)
-    (sendDuration, waitDuration, _)
-      = configData leafData
     sendEndTime = addUTCTime
-      (fromIntegral $ sendDuration)
+      (fromIntegral $ sendDuration $ configData leafData)
       startTime
 
   let

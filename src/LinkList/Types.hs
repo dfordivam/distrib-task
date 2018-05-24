@@ -8,7 +8,7 @@ import Control.Distributed.Process ( ProcessId)
 import Data.Typeable
 import Data.Binary
 import GHC.Generics
-import Utils
+import CommonCode
 
 -- Message design
 -- The peer
@@ -86,8 +86,5 @@ data MessageList =
 data LeafInitData = LeafInitData
   { configData :: ConfigData
   , leafId :: LeafNodeId
-  , totalNodes :: Int
-  , serverIp :: (String, Int)
-  , peerIp :: (String, Int)
   }
   deriving (Generic, Typeable, Binary)

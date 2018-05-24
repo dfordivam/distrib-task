@@ -35,7 +35,7 @@ library
                        HierRing.Supervisor
                        HierRing.LeafNode
                        HierRing.Types
-                       Utils
+                       CommonCode
 
   build-depends:       base >=4.9 && <4.11
                        , distributed-process

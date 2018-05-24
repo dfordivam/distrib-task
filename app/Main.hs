@@ -18,7 +18,7 @@ import qualified HierRing.Supervisor as HR
 import qualified HierRing.LeafNode   as HR
 import qualified HierRing.Types      as HR
 
-import Utils
+import CommonCode
 
 import Options.Applicative
 import Data.Semigroup ((<>))
@@ -30,10 +30,19 @@ import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Network.Transport as NT
 
 data InputArgs = InputArgs
-  { configForServer :: Maybe (String, ConfigData)
+  { configForServer :: Maybe (String, (Int,Int,Int))
   , myHostName      :: String
   , myPort          :: Int
+  , implType        :: Maybe ImplType
   }
+  deriving (Show)
+
+data ImplType
+  = SingleServer
+  | Ring
+  | Mesh
+  | SafeRing
+  | HierRing
   deriving (Show)
 
 inputArgs :: Parser InputArgs
@@ -46,12 +55,31 @@ inputArgs = InputArgs
 
   <*> strOption (long "host" <> help "Hostname" <> metavar "STRING")
   <*> option auto (long "port" <> help "Port" <> metavar "INT")
+  <*> optional (subparser
+      ((command "singleserver" (info (pure SingleServer) (progDesc "singleserver")))
+        <> (command "ring" (info (pure Ring) (progDesc "ring")))
+        <> (command "safering" (info (pure SafeRing) (progDesc "safering")))
+        <> (command "mesh" (info (pure Mesh) (progDesc "mesh")))
+        <> (command "hier" (info (pure HierRing) (progDesc "hier")))))
+
+getImplFn Nothing =
+  (HR.startLeafNode, HR.startSupervisorNode)
+getImplFn (Just HierRing) =
+  (HR.startLeafNode, HR.startSupervisorNode)
+getImplFn (Just SingleServer) =
+  (SS.startLeafNode, SS.startSupervisorNode)
+getImplFn (Just Ring) =
+  (LL.startLeafNode, LL.startSupervisorNode)
+getImplFn (Just Mesh) =
+  (DM.startLeafNode, DM.startSupervisorNode)
+getImplFn (Just SafeRing) =
+  (SR.startLeafNode, SR.startSupervisorNode)
 
 main :: IO ()
 main = do
   let opts = info (inputArgs <**> helper) fullDesc
   iArgs <- execParser opts
-  print iArgs
+  let (f1,f2) = getImplFn $ implType iArgs
 
   Right t <- createTransport (myHostName iArgs) (show $ myPort iArgs)
     (\p -> (myHostName iArgs, p))
@@ -59,9 +87,11 @@ main = do
   node <- newLocalNode t initRemoteTable
 
   case (configForServer iArgs) of
-    Nothing -> HR.startLeafNode node
-    (Just (fileName,cd)) -> do
+    Nothing -> f1 node
+    (Just (fileName, (a,b,c))) -> do
       fc <- liftIO $ readFile fileName
-      let nodeList = read fc
-          serverIp = (myHostName iArgs, myPort iArgs)
-      HR.startSupervisorNode node cd nodeList serverIp
+      let
+        serverIp = (myHostName iArgs, myPort iArgs)
+        cd = ConfigData a b c serverIp
+          $ zip (map LeafNodeId [1..]) $ read fc
+      f2 node cd
