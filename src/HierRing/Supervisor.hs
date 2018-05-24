@@ -69,14 +69,15 @@ startSupervisorNode =
     f cd i = LeafInitData cd i clId selfIp nextCls peers
       where
         clId = ClusterId $
-          1 + (mod (unLeafNodeId i) nodesPerCluster)
+          1 + (div (unLeafNodeId i - 1) nodesPerCluster)
         Just selfIp = snd <$> find ((== i) . fst) (nodesList cd)
         cls = zip (map ClusterId [1..])
           $ chunkList nodesPerCluster (nodesList cd)
 
         (nextCls1:_) = rotateExcl clId cls
         nextCls = (\(a,ns) -> (a, head ns)) nextCls1
-        Just peers = snd <$> find ((== clId) . fst) cls
+        Just ps = snd <$> find ((== clId) . fst) cls
+        peers = rotateExcl i ps
 
 chunkList :: Int -> [a] -> [[a]]
 chunkList _ [] = []
