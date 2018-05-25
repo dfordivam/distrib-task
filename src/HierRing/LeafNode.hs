@@ -113,11 +113,9 @@ leafClient recvStartMsg leafData = do
       , unhandledMessagePolicy = Log
       }
 
-  pid <- getSelfPid
-  wpid <- spawnLocal $ do
-    link pid
-    serve () (statelessInit Infinity) workServer
-  register workServerId wpid
+  register workServerId
+    =<< (spawnLocal $ do
+    serve () (statelessInit Infinity) workServer)
 
   (incomingClsMsg, getIncomingClsMsg) <- newChan
   (sendOwnClsMsg, recvOwnClsMsg) <- newChan
@@ -259,7 +257,7 @@ leafMainClient
                  , newRngt)
 
       liftIO $ threadDelay (timeToMicros Millis 20)
-      -- Call the sink node, if timeout then die
+      -- Call the next node, if timeout then die
       status <- waitCancelTimeout peerCallTimeout
         =<< (async $ task $ do
             (_ :: ()) <- call ppid msg

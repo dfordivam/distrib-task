@@ -91,10 +91,8 @@ leafClient recvStartMsg leafData = do
       , unhandledMessagePolicy = Log
       }
 
-  pid <- getSelfPid
   register workServerId
     =<< (spawnLocal $ do
-    link pid
     serve () (statelessInit Infinity) workServer)
 
   receiveChan recvStartMsg
@@ -142,9 +140,8 @@ leafMainClient recvMsgChan recReqRecvChan leafData = do
           (_ :: Int) <- call ppid TestPing
           return ppid)
 
-      let (_:nextPeer:_) = n ++ p
+      let (nextPeer:_) = rotateExcl peerId peers
           peerId = fst peer
-          (p,n) = break (== peer) peers
 
       case r of
         (AsyncDone ppid) ->
@@ -164,54 +161,50 @@ leafMainClient recvMsgChan recReqRecvChan leafData = do
 
     ---------------------------------------------------
     leafMessagePeer peerId ppid maybeMsg rngt = do
-      let
-        fwdMsgLoop maybeMsg rngt = do
-          -- Send message and all data not sent earlier
-          (msg, newRngt) <- case maybeMsg of
-            Nothing -> do
-              -- Everything blocks if no message is received
-              rcpid <- spawnLocal $ do
-                liftIO $ threadDelay receiveTimeout
-                cast prevNode
-                  (ReconnectRequest $ (leafId leafData
-                    , selfIp))
-                say "Sent reconnect request"
-              m <- receiveChan recvMsgChan
-              exit rcpid ()
-              let (d, newRng) = random $ fst rngt
-                  (m1,_) = break
-                    (\(i,_,_) -> i == peerId) m
-                  newT = TimePulse $ 1 +
-                    (unTimePulse $ snd rngt)
-                  myM = (leafId leafData, newT, d)
-                  allMsgs = myM : m
-                  fwdMsgs = myM : m1
-                  newRngt = (newRng, newT)
-              sendChan sendAddDb (Just allMsgs)
-              return (fwdMsgs, newRngt)
-            (Just m) -> return (m, rngt)
+      -- Send message and all data not sent earlier
+      (msg, newRngt) <- case maybeMsg of
+        (Just m) -> return (m, rngt)
+        Nothing -> do
+          -- Everything blocks if no message is received
+          rcpid <- spawnLocal $ do
+            liftIO $ threadDelay receiveTimeout
+            cast prevNode
+              (ReconnectRequest $ (leafId leafData
+                , selfIp))
+            say "Sent reconnect request"
+          m <- receiveChan recvMsgChan
+          exit rcpid ()
+          let (d, newRng) = random $ fst rngt
+              (m1,_) = break
+                (\(i,_,_) -> i == peerId) m
+              newT = TimePulse $ 1 +
+                (unTimePulse $ snd rngt)
+              myM = (leafId leafData, newT, d)
+              allMsgs = myM : m
+              fwdMsgs = myM : m1
+              newRngt = (newRng, newT)
+          sendChan sendAddDb (Just allMsgs)
+          return (fwdMsgs, newRngt)
 
-          -- Call the sink node, if timeout then die
-          status <- waitCancelTimeout peerCallTimeout
-            =<< (async $ task $ do
-                (_ :: ()) <- call ppid (MessageList msg)
-                return ())
-          t <- liftIO $ getCurrentTime
-          if sendEndTime > t
-            then case status of
-              (AsyncDone _) -> do
-                recReq <- receiveChanTimeout 0
-                  recReqRecvChan
-                case recReq of
-                  Nothing ->
-                    fwdMsgLoop Nothing newRngt
-                  (Just (ReconnectRequest r)) ->
-                    return $ Reconnect r newRngt
-              _ -> return $ RetryNextPeer (msg, newRngt)
-            else return SendTimeOver
+      -- Call the next node, if timeout then die
+      status <- waitCancelTimeout peerCallTimeout
+        =<< (async $ task $ do
+            (_ :: ()) <- call ppid (MessageList msg)
+            return ())
+      t <- liftIO $ getCurrentTime
+      if sendEndTime > t
+        then case status of
+          (AsyncDone _) -> do
+            recReq <- receiveChanTimeout 0
+              recReqRecvChan
+            case recReq of
+              Nothing ->
+                leafMessagePeer peerId ppid Nothing newRngt
+              (Just (ReconnectRequest r)) ->
+                return $ Reconnect r newRngt
+          _ -> return $ RetryNextPeer (msg, newRngt)
+        else return SendTimeOver
 
-      say "Starting fwdMsgLoop"
-      fwdMsgLoop maybeMsg rngt
     ---------------------------------------------------
 
     addToDb db = do
@@ -219,7 +212,7 @@ leafMainClient recvMsgChan recReqRecvChan leafData = do
       case msg of
         Nothing -> return db
         (Just ms) -> addToDb $ Map.union db
-          (Map.fromList $ map (\(a,b,c) -> ((a,b),c)) ms)
+          (Map.fromList $ map (\(a,b,c) -> ((b,a),c)) ms)
     ---------------------------------------------------
 
   addTask <- async $ task $ addToDb (Map.empty)
@@ -229,7 +222,6 @@ leafMainClient recvMsgChan recReqRecvChan leafData = do
     (d, newRng) = random initRng
     initRng = (getRngInit (configData leafData) (leafId leafData))
 
-  say "Starting Leaf Process"
   connectToPeer (head peers) (Just firstMsg) (newRng, TimePulse 0)
 
   sendChan sendAddDb Nothing

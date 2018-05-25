@@ -1,0 +1,1 @@
+stack exec node -- --with-seed 1 --send-for 10 --wait-for 5 --host 127.0.0.1 --port 12339 --config conf safering

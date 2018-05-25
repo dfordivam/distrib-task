@@ -66,7 +66,8 @@ startSupervisorNode
   -> ConfigData
   -> IO ()
 startSupervisorNode =
-  startSupervisorNodeCommon supervisorServer
+  (startSupervisorNodeCommon 1)
+  supervisorServer
   (\cd i -> LeafInitData cd i)
 
 supervisorServer :: Process ()

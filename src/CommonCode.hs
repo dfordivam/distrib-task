@@ -179,61 +179,70 @@ doExitProcess pid _ ExitSignal = do
   continue ()
 -----------------------------------------------------
 
+-- Supervisor acts as both a client and a server
+-- It first discovers all nodes and establishes connection with them
+-- After the leaf nodes are ready
+-- It kicks the messages exchange
+
 startSupervisorNodeCommon
   :: (Binary a, Typeable a)
-  => Process ()
+  => Int
+  -> Process ()
   -> (ConfigData -> LeafNodeId -> a)
   -> LocalNode
   -> ConfigData
   -> IO ()
 startSupervisorNodeCommon
+  minNodeCount
   supervisorServer
   makeLeafInitData
-  node cd = runProcess node $ do
+  node cd
+  | minNodeCount > (length $ nodesList cd) = do
+      putStrLn $ "Need minimum " ++ (show minNodeCount) ++ " nodes."
+  | otherwise = runProcess node $ do
+    register supervisorServerId
+      =<< spawnLocal supervisorServer
 
-  register supervisorServerId
-    =<< spawnLocal supervisorServer
+    kickSignalMVar <- liftIO $ newEmptyMVar
+    timeoutMVar <- liftIO $ newEmptyMVar
+    initDoneMVar <- liftIO $ newMVar
+      (length $ nodesList cd)
 
-  kickSignalMVar <- liftIO $ newEmptyMVar
-  timeoutMVar <- liftIO $ newEmptyMVar
-  initDoneMVar <- liftIO $ newMVar
-    (length $ nodesList cd)
+    forM (nodesList cd) $ \(i, leaf) -> spawnLocal $ do
+      say $ "Searching leaf: " ++ (show leaf)
+      leafPid <- searchRemotePid leafServerId leaf
+      say $ "Found leaf: " ++ (show leaf)
+      (_ :: ()) <- call leafPid
+        (makeLeafInitData cd i)
 
-  forM (nodesList cd) $ \(i, leaf) -> spawnLocal $ do
-    say $ "Searching leaf: " ++ (show leaf)
-    leafPid <- searchRemotePid leafServerId leaf
-    say $ "Found leaf: " ++ (show leaf)
-    (_ :: ()) <- call leafPid
-      (makeLeafInitData cd i)
+      -- Indicate if all leaves init correctly
+      liftIO $ modifyMVar_ initDoneMVar (\c -> return (c - 1))
 
-    -- Indicate if all leaves init correctly
-    liftIO $ modifyMVar_ initDoneMVar (\c -> return (c - 1))
+      -- wait for kick signal
+      liftIO $ readMVar kickSignalMVar
 
-    -- wait for kick signal
-    liftIO $ readMVar kickSignalMVar
+      -- start nodes
+      say $ "Start messaging: " ++ (show leaf)
+      cast leafPid (StartMessaging)
 
-    -- start nodes
-    say $ "Start messaging: " ++ (show leaf)
-    cast leafPid (StartMessaging)
+      -- wait for timeout
+      liftIO $ readMVar timeoutMVar
+      cast leafPid ExitSignal
 
-    -- wait for timeout
-    liftIO $ readMVar timeoutMVar
-    cast leafPid ExitSignal
+    let waitLoop = do
+          c <- readMVar initDoneMVar
+          when (c > 0) $ threadDelay (timeToMicros Millis 10) >> waitLoop
 
-  let waitLoop = do
-        c <- readMVar initDoneMVar
-        when (c > 0) $ threadDelay (timeToMicros Millis 10) >> waitLoop
-
-  liftIO $ do
-    waitLoop
-    putMVar kickSignalMVar ()
-    -- wait for send + wait duration
-    threadDelay $ timeToMicros Seconds $
-                 (sendDuration cd)
-                 + (waitDuration cd)
-    putMVar timeoutMVar ()
-    -- Allow the ExitSignal send
-    threadDelay (timeToMicros Seconds 1)
+    liftIO $ do
+      waitLoop
+      putMVar kickSignalMVar ()
+      -- wait for send + wait duration
+      threadDelay $ timeToMicros Seconds $
+                   (sendDuration cd)
+                   + (waitDuration cd)
+      putMVar timeoutMVar ()
+      -- Allow the ExitSignal send
+      threadDelay (timeToMicros Seconds 1)
 
 supervisorServerSimple :: Process ()
 supervisorServerSimple = do

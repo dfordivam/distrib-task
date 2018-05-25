@@ -52,18 +52,12 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad (void, forever, forM)
 import Data.List (find)
 
--- Supervisor acts as both a client and a server
--- It first discovers all nodes and establishes connection with them
--- After the leaf nodes are ready
--- It kicks the messages exchange
-
 startSupervisorNode
   :: LocalNode
   -> ConfigData
   -> IO ()
 startSupervisorNode =
-  -- Ensure min number of nodes
-  startSupervisorNodeCommon
+  (startSupervisorNodeCommon 5)
   supervisorServerSimple f
   where
     f cd i = LeafInitData cd i clId selfIp nextCls peers

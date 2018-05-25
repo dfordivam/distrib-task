@@ -1,0 +1,9 @@
+stack exec node -- --host 127.0.0.1 --port 12340 safering > >(tee node0.log) 2> node0.err &
+stack exec node -- --host 127.0.0.1 --port 12341 safering > >(tee node1.log) 2> node1.err &
+stack exec node -- --host 127.0.0.1 --port 12342 safering > >(tee node2.log) 2> node2.err &
+stack exec node -- --host 127.0.0.1 --port 12343 safering > >(tee node3.log) 2> node3.err &
+stack exec node -- --host 127.0.0.1 --port 12344 safering > >(tee node4.log) 2> node4.err &
+stack exec node -- --host 127.0.0.1 --port 12345 safering > >(tee node5.log) 2> node5.err &
+stack exec node -- --host 127.0.0.1 --port 12346 safering > >(tee node6.log) 2> node6.err &
+stack exec node -- --host 127.0.0.1 --port 12347 safering > >(tee node7.log) 2> node7.err &
+stack exec node -- --host 127.0.0.1 --port 12348 safering > >(tee node8.log) 2> node8.err &
