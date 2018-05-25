@@ -39,8 +39,6 @@ import Control.Distributed.Process ( expectTimeout
 import Control.Distributed.Process.Extras.Time (timeToMicros, TimeUnit(..), Delay(..))
 import Control.Distributed.Process.Node ( runProcess
                                         , LocalNode)
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
-import Network.Transport     (EndPointAddress(..))
 import Control.Concurrent (threadDelay
                           , MVar
                           , newEmptyMVar

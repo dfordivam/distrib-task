@@ -6,7 +6,6 @@ module DenseMesh.LeafNode
 import CommonCode
 import DenseMesh.Types
 
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process.ManagedProcess ( serve
                                                   , reply
                                                   , call
@@ -57,7 +56,6 @@ import Control.Concurrent (threadDelay, MVar
                           , modifyMVar_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (forever, forM_, void, when)
-import Network.Transport     (EndPointAddress(..))
 
 import Data.IORef
 import System.Random (mkStdGen, random)

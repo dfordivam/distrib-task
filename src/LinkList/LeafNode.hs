@@ -6,7 +6,6 @@ module LinkList.LeafNode
 import CommonCode
 import LinkList.Types
 
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process.ManagedProcess ( serve
                                                   , reply
                                                   , call
@@ -52,7 +51,6 @@ import Control.Distributed.Process.Node ( initRemoteTable
 import Control.Concurrent (threadDelay, MVar)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (forever, forM_, void)
-import Network.Transport     (EndPointAddress(..))
 
 import Data.IORef
 import Data.Foldable (toList)

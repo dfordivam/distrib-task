@@ -7,7 +7,6 @@ module SingleServer.LeafNode
 import CommonCode
 import SingleServer.Types
 
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process.ManagedProcess ( serve
                                                   , reply
                                                   , call
@@ -49,7 +48,6 @@ import Control.Distributed.Process.Node ( initRemoteTable
 import Control.Concurrent (threadDelay, MVar)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (forever, forM_, void)
-import Network.Transport     (EndPointAddress(..))
 
 import System.Random (mkStdGen, random)
 import Data.Time.Clock (getCurrentTime

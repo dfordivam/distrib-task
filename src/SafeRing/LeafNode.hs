@@ -7,7 +7,6 @@ module SafeRing.LeafNode
 import CommonCode
 import SafeRing.Types
 
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process.ManagedProcess ( serve
                                                   , reply
                                                   , call
@@ -63,7 +62,6 @@ import Control.Distributed.Process.Async (AsyncResult(..)
 import Control.Concurrent (threadDelay, MVar)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (forever, forM_, void)
-import Network.Transport     (EndPointAddress(..))
 import Data.List (find)
 
 import qualified Data.Map as Map

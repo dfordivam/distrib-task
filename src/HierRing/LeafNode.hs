@@ -7,7 +7,6 @@ module HierRing.LeafNode
 import CommonCode
 import HierRing.Types
 
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process.ManagedProcess ( serve
                                                   , reply
                                                   , call
@@ -62,7 +61,6 @@ import Control.Distributed.Process.Async (AsyncResult(..)
 import Control.Concurrent (threadDelay, MVar)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (forever, forM_, void, when)
-import Network.Transport     (EndPointAddress(..))
 
 import qualified Data.Map as Map
 import System.Random (mkStdGen, random
