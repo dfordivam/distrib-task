@@ -44,6 +44,7 @@ import Control.Distributed.Process ( spawnLocal
                                    , Process
                                    , DiedReason(..)
                                    , ProcessId(..)
+                                   , ReceivePort
                                    , NodeId(..)
                                    , WhereIsReply(..))
 import Control.Distributed.Process.ManagedProcess.Server (replyChan, continue)
@@ -95,8 +96,8 @@ import Data.Time.Clock (getCurrentTime
 startLeafNode :: LocalNode -> IO ()
 startLeafNode = startLeafNodeCommon leafClient
 
-leafClient :: LeafInitData -> Process ()
-leafClient leafData = do
+leafClient :: ReceivePort StartMessaging -> LeafInitData -> Process ()
+leafClient recvStartMsg leafData = do
   say "Starting Leaf client"
 
   (sendFwdMsg, recvMsgChan) <- newChan
@@ -121,6 +122,7 @@ leafClient leafData = do
   (incomingClsMsg, getIncomingClsMsg) <- newChan
   (sendOwnClsMsg, recvOwnClsMsg) <- newChan
 
+  -- The first node in a cluster is made leader
   let isLeader = all ((leafId leafData) < )
         $ map fst $ peerList leafData
   if isLeader
@@ -129,8 +131,9 @@ leafClient leafData = do
         incomingClsMsg leafData
     else return ()
 
+  receiveChan recvStartMsg
   leafMainClient recvMsgChan recReqRecvChan
-    getIncomingClsMsg sendOwnClsMsg leafData
+    getIncomingClsMsg sendOwnClsMsg isLeader leafData
 
 reconnectReqHandler :: _ -> CastHandler _ ReconnectRequest
 reconnectReqHandler recReqRecvChan _ r = do
@@ -153,12 +156,18 @@ data FwdMsgResult
     (StdGen, TimePulse)
   | RetryNextPeer MessageList (StdGen, TimePulse)
 
-leafMainClient recvMsgChan recReqRecvChan
-  getIncomingClsMsg sendOwnClsMsg leafData
-  = do
+-- Intra cluster communication
+-- same as SafeRing implementation
+leafMainClient
+  recvMsgChan       -- Intra-cluster msg from peer
+  recReqRecvChan    -- reconnect request from intra-cluster peer
+  getIncomingClsMsg -- inter-cluster msg
+  sendOwnClsMsg     -- inter-cluster msg
+  isLeader
+  leafData = do
+
   startTime <- liftIO $ getCurrentTime
   let
-    isLeader = all ((leafId leafData) < ) $ map fst peers
     peers = peerList leafData
     prevPeer = head $ reverse peers
   prevNode <- searchRemotePid workServerId (snd prevPeer)
@@ -168,9 +177,7 @@ leafMainClient recvMsgChan recReqRecvChan
     sendEndTime = addUTCTime
       (fromIntegral $ sendDuration $ configData leafData)
       startTime
-    waitTime = addUTCTime
-      (fromIntegral $ waitDuration $ configData leafData)
-      startTime
+
     ---------------------------------------------------
     connectToPeer peer maybeMsg rngt = do
       say $ "Searching peer: " ++ (show peer)
@@ -201,78 +208,76 @@ leafMainClient recvMsgChan recReqRecvChan
 
     ---------------------------------------------------
     leafMessagePeer peerId ppid maybeMsg rngt = do
-      let
-        fwdMsgLoop maybeMsg rngt = do
-          -- Send message and all data not sent earlier
-          (msg, newRngt) <- case maybeMsg of
-            Nothing -> do
-              -- Everything blocks if no message is received
-              rcpid <- spawnLocal $ do
-                liftIO $ threadDelay receiveTimeout
-                cast prevNode
-                  (ReconnectRequest $ (leafId leafData
-                    , selfIp leafData))
-                say "Sent reconnect request"
+      -- Send message and all data not sent earlier
+      (msg, newRngt) <- case maybeMsg of
+        (Just m) -> return (m, rngt)
+        Nothing -> do
+          rcpid <- spawnLocal $ do
+            liftIO $ threadDelay receiveTimeout
+            cast prevNode
+              (ReconnectRequest $ (leafId leafData
+                , selfIp leafData))
+            say "Sent reconnect request"
 
-              -- Blocking call
-              (MessageList m c) <- receiveChan recvMsgChan
-              exit rcpid ()
+          -- Blocking call
+          -- Everything blocks if no message is received
+          -- ie If the previous node is also disconnected
+          -- ideally we could try pinging other nodes in the cluster
+          (MessageList m c) <- receiveChan recvMsgChan
+          exit rcpid ()
 
-              clsMsg <- if isLeader
-                then receiveChanTimeout 0 getIncomingClsMsg
-                else return Nothing
+          clsMsg <- if isLeader
+            then receiveChanTimeout 0 getIncomingClsMsg
+            else return Nothing
 
-              let (d, newRng) = random $ fst rngt
-                  (m1,_) = break
-                    (\(LeafMessage (i,_,_)) -> i == peerId) m
-                  newT = TimePulse $ 1 +
-                    (unTimePulse $ snd rngt)
-                  myM = LeafMessage
-                    (leafId leafData, newT, d)
-                  allMsgs = myM : m
-                  fwdMsgs = myM : m1
-                  newRngt = (newRng, newT)
+          let (d, newRng) = random $ fst rngt
+              (m1,_) = break
+                (\(LeafMessage (i,_,_)) -> i == peerId) m
+              newT = TimePulse $ 1 +
+                (unTimePulse $ snd rngt)
+              myM = LeafMessage
+                (leafId leafData, newT, d)
+              allMsgs = myM : m
+              fwdMsgs = myM : m1
+              newRngt = (newRng, newT)
 
-              sendChan sendAddDb (Just allMsgs)
-              when isLeader $
-                sendChan sendOwnClsMsg
-                  (ClusterMessage (clusterId leafData) allMsgs)
+          sendChan sendAddDb (Just allMsgs)
+          when isLeader $
+            sendChan sendOwnClsMsg
+              (ClusterMessage (clusterId leafData) allMsgs)
 
-              -- Add the cluster messages to own DB
-              let
-                myC = if isLeader
-                      then (maybe [] id clsMsg)
-                      else c
-              forM_ myC
-                (\(ClusterMessage _ c)
-                 -> sendChan sendAddDb (Just c))
+          -- Add the cluster messages to own DB
+          let
+            myC = if isLeader
+                  then (maybe [] id clsMsg)
+                  else c
+          forM_ myC
+            (\(ClusterMessage _ c)
+             -> sendChan sendAddDb (Just c))
 
-              return (MessageList fwdMsgs myC
-                     , newRngt)
-            (Just m) -> return (m, rngt)
+          return (MessageList fwdMsgs myC
+                 , newRngt)
 
-          liftIO $ threadDelay (timeToMicros Millis 20)
-          -- Call the sink node, if timeout then die
-          status <- waitCancelTimeout peerCallTimeout
-            =<< (async $ task $ do
-                (_ :: ()) <- call ppid msg
-                return ())
-          t <- liftIO $ getCurrentTime
-          if sendEndTime > t
-            then case status of
-              (AsyncDone _) -> do
-                recReq <- receiveChanTimeout 0
-                  recReqRecvChan
-                case recReq of
-                  Nothing ->
-                    fwdMsgLoop Nothing newRngt
-                  (Just (ReconnectRequest r)) ->
-                    return $ Reconnect r newRngt
-              _ -> return $ RetryNextPeer msg newRngt
-            else return SendTimeOver
+      liftIO $ threadDelay (timeToMicros Millis 20)
+      -- Call the sink node, if timeout then die
+      status <- waitCancelTimeout peerCallTimeout
+        =<< (async $ task $ do
+            (_ :: ()) <- call ppid msg
+            return ())
+      t <- liftIO $ getCurrentTime
+      if sendEndTime > t
+        then case status of
+          (AsyncDone _) -> do
+            recReq <- receiveChanTimeout 0
+              recReqRecvChan
+            case recReq of
+              Nothing ->
+                leafMessagePeer peerId ppid Nothing newRngt
+              (Just (ReconnectRequest r)) ->
+                return $ Reconnect r newRngt
+          _ -> return $ RetryNextPeer msg newRngt
+        else return SendTimeOver
 
-      say "Starting fwdMsgLoop"
-      fwdMsgLoop maybeMsg rngt
     ---------------------------------------------------
 
     addToDb db = do
@@ -295,7 +300,6 @@ leafMainClient recvMsgChan recReqRecvChan
   when isLeader $
     sendChan sendOwnClsMsg
       (ClusterMessage (clusterId leafData) firstMsg1)
-  say "Starting Leaf Process"
   sendChan sendAddDb (Just firstMsg1)
   connectToPeer (head peers) (Just firstMsg) (newRng, TimePulse 0)
 
@@ -310,6 +314,8 @@ reportResult db leafData = do
       allValues = map snd $ Map.toList db
   liftIO $ printResult allValues (leafId leafData)
 
+-- Inter cluster communication
+-- This code is same as ring
 leafClusterClient recvClsMsg recvOwnClsMsg incomingClsMsg leafData = do
   say "Starting Leaf Cluster Client"
   startTime <- liftIO $ getCurrentTime
@@ -325,8 +331,8 @@ leafClusterClient recvClsMsg recvOwnClsMsg incomingClsMsg leafData = do
 
   let
     fwdMsgLoop isFirst = do
-      -- Send message and all data not sent earlier
       msg <- if isFirst
+        -- First time we only have our own message to send
         then return []
         else do
           msg <- receiveChan recvClsMsg

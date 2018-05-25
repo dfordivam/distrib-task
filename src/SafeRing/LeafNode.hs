@@ -44,6 +44,7 @@ import Control.Distributed.Process ( spawnLocal
                                    , whereisRemoteAsync
                                    , Process
                                    , DiedReason(..)
+                                   , ReceivePort
                                    , ProcessId(..)
                                    , NodeId(..)
                                    , WhereIsReply(..))
@@ -75,8 +76,8 @@ import Data.Time.Clock (getCurrentTime
 startLeafNode :: LocalNode -> IO ()
 startLeafNode = startLeafNodeCommon leafClient
 
-leafClient :: LeafInitData -> Process ()
-leafClient leafData = do
+leafClient :: ReceivePort StartMessaging -> LeafInitData -> Process ()
+leafClient recvStartMsg leafData = do
   say "Starting Leaf client"
 
   (sendFwdMsg, recvMsgChan) <- newChan
@@ -96,7 +97,7 @@ leafClient leafData = do
     link pid
     serve () (statelessInit Infinity) workServer)
 
-  (_ :: StartMessaging) <- expect
+  receiveChan recvStartMsg
   leafMainClient recvMsgChan recReqRecvChan leafData
 
 reconnectReqHandler :: _ -> CastHandler _ ReconnectRequest

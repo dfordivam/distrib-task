@@ -40,6 +40,7 @@ import Control.Distributed.Process ( spawnLocal
                                    , Process
                                    , DiedReason(..)
                                    , ProcessId(..)
+                                   , ReceivePort
                                    , NodeId(..)
                                    , WhereIsReply(..))
 import Control.Distributed.Process.ManagedProcess.Server (replyChan, continue)
@@ -68,8 +69,8 @@ import Data.Time.Clock (getCurrentTime
 startLeafNode :: LocalNode -> IO ()
 startLeafNode = startLeafNodeCommon leafClient
 
-leafClient :: LeafInitData -> Process ()
-leafClient leafData = do
+leafClient :: ReceivePort StartMessaging -> LeafInitData -> Process ()
+leafClient recvStartMsg leafData = do
   say "Starting Leaf client"
 
   (sendFwdMsg, recvFwdMsg) <- newChan
@@ -104,7 +105,7 @@ leafClient leafData = do
   say $ "Did call to:" ++ (show $ (working1 :: Int))
   say $ "Did call to:" ++ (show $ (working2 :: Int))
 
-  (_ :: StartMessaging) <- expect
+  receiveChan recvStartMsg
   leafClientWork leafData ppid (recvFwdMsg, recvAddDb)
 
 -- start working

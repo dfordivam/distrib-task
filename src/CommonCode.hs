@@ -10,6 +10,8 @@ import Control.Distributed.Process ( spawnLocal
                                    , send
                                    , expectTimeout
                                    , register
+                                   , newChan
+                                   , sendChan
                                    , getSelfPid
                                    , sendPortId
                                    , processNodeId
@@ -17,6 +19,8 @@ import Control.Distributed.Process ( spawnLocal
                                    , expect
                                    , Process
                                    , ProcessId(..)
+                                   , SendPort
+                                   , ReceivePort
                                    , NodeId(..)
                                    , WhereIsReply(..))
 import Control.Distributed.Process.Node ( runProcess
@@ -107,6 +111,9 @@ leafServerId = "leaf-server"
 workServerId = "work-server"
 supervisorServerId = "supervisor-server"
 
+-- 1 -> [1,2,3,4] == [2,3,4]
+-- 2 -> [1,2,3,4] == [3,4,1]
+-- This is used to determine peers in a ring configuration
 rotateExcl :: (Eq k) => k -> [(k,l)] -> [(k,l)]
 rotateExcl _ [] = error "Empty list in rotateExcl"
 rotateExcl k ks = ks2 ++ ks1
@@ -120,51 +127,56 @@ printResult allValues i = do
     ++ " => " ++ (show (length allValues, s))
 
 -----------------------------------------------------
+-- Common code run on all leaf nodes.
+-- Overview
+-- Setup server and wait for supervisor to connect
+-- Get details (time, seed) from supervisor
+-- Starts client process (leafClient) and connect back to supervisor server
+-- Wait for kick-off signal from supervisor
+-- Do message exchange
+-- After timeout print sum, and exit
+
 startLeafNodeCommon
   :: (Binary a, Typeable a)
-  => (a -> Process ())
+  => (ReceivePort StartMessaging -> a -> Process ())
   -> LocalNode -> IO ()
 startLeafNodeCommon leafClient node = runProcess node $ do
   say "Starting Leaf server"
   pid <- getSelfPid
+  (sendStartMsg, recvStartMsg) <- newChan
   let
     -- Backgroud server, always running
     -- To get messages from supervisor
-    leafServer = defaultProcess
-      { apiHandlers = [ handleCall (initClient leafClient)
-                      , handleCast startClient
+    leafServer = statelessProcess
+      { apiHandlers = [ handleCall (initClient $ leafClient recvStartMsg)
+                      , handleCast (startClient sendStartMsg)
                       , handleCast (doExitProcess pid)
                       ]
       , unhandledMessagePolicy = Log
       }
 
   register leafServerId
-    =<< spawnLocal (serve ()
-      (const $ return $ InitOk Nothing Infinity) leafServer)
+    =<< spawnLocal (serve () (statelessInit Infinity) leafServer)
 
   (_ :: ExitSignal) <- expect
   return ()
 
 initClient
   :: (a -> Process ())
- -> CallHandler (Maybe ProcessId) a ()
+ -> CallHandler () a ()
 initClient leafClient _ p = do
-  pid <- spawnLocal $ leafClient p
-  reply () (Just pid)
+  spawnLocal $ leafClient p
+  reply () ()
 
-startClient :: CastHandler (Maybe ProcessId) StartMessaging
-startClient Nothing s = do
-  say "Error: startClient without data"
-  continue Nothing
+startClient :: SendPort StartMessaging -> CastHandler () StartMessaging
+startClient sendStartMsg () _ = do
+  sendChan sendStartMsg StartMessaging
+  continue ()
 
-startClient (Just pid) _ = do
-  send pid StartMessaging
-  continue Nothing
-
-doExitProcess :: ProcessId -> CastHandler (Maybe ProcessId) ExitSignal
+doExitProcess :: ProcessId -> CastHandler () ExitSignal
 doExitProcess pid _ ExitSignal = do
   send pid ExitSignal
-  continue Nothing
+  continue ()
 -----------------------------------------------------
 
 startSupervisorNodeCommon

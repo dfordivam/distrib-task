@@ -30,12 +30,14 @@ import Control.Distributed.Process ( spawnLocal
                                    , expect
                                    , register
                                    , monitorPort
+                                   , receiveChan
                                    , sendPortId
                                    , processNodeId
                                    , whereisRemoteAsync
                                    , Process
                                    , DiedReason(..)
                                    , ProcessId(..)
+                                   , ReceivePort
                                    , NodeId(..)
                                    , WhereIsReply(..))
 import Control.Distributed.Process.ManagedProcess.Server (replyChan, continue)
@@ -57,26 +59,19 @@ import Data.Time.Clock (getCurrentTime
 -- After receiving relevant details and kick-off signal from supervisor
 -- it acts as a client and send messages and receives replies
 
--- STEPS overview
--- Setup server and wait for supervisor to connect
--- Get details (time, seed) from supervisor
--- Starts client process and connect back to supervisor server
--- Wait for kick-off signal from supervisor
--- Do message exchange with supervisor server
--- After timeout print sum, and exit client process
 
 startLeafNode :: LocalNode -> IO ()
 startLeafNode = startLeafNodeCommon leafClient
 
-leafClient :: LeafInitData -> Process ()
-leafClient leafData = do
+leafClient :: ReceivePort StartMessaging -> LeafInitData -> Process ()
+leafClient recvStartMsg leafData = do
   say "Starting Leaf client"
   spid <- searchRemotePid supervisorServerId
     (serverIp $ configData leafData)
   say $ "Doing call to:" ++ (show spid)
   working <- call spid (TestPing)
   say $ "Got ping response:" ++ (show $ (working :: Int))
-  (_ :: StartMessaging) <- expect
+  receiveChan recvStartMsg
   leafClientWork leafData spid
 
 leafClientWork leafData spid = do

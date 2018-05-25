@@ -43,6 +43,7 @@ import Control.Distributed.Process ( spawnLocal
                                    , Process
                                    , DiedReason(..)
                                    , ProcessId(..)
+                                   , ReceivePort
                                    , NodeId(..)
                                    , WhereIsReply(..))
 import Control.Distributed.Process.ManagedProcess.Server (replyChan, continue)
@@ -69,8 +70,8 @@ import Data.Time.Clock (getCurrentTime
 startLeafNode :: LocalNode -> IO ()
 startLeafNode = startLeafNodeCommon leafClient
 
-leafClient :: LeafInitData -> Process ()
-leafClient leafData = do
+leafClient :: ReceivePort StartMessaging -> LeafInitData -> Process ()
+leafClient recvStartMsg leafData = do
   say "Starting Leaf client"
 
   dbRef <- liftIO $ newMVar []
@@ -96,7 +97,7 @@ leafClient leafData = do
   (_ :: [Int]) <- mapM ((flip call) TestPing) ppids
   (_ :: Int) <- call spid (TestPing)
 
-  (_ :: StartMessaging) <- expect
+  receiveChan recvStartMsg
   leafClientWork leafData ppids dbRef
 
 leafClientWork leafData ppids dbRef = do
