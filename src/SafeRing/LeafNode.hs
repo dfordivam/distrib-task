@@ -1,6 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE PartialTypeSignatures #-}
 module SafeRing.LeafNode
   (startLeafNode)
   where
@@ -43,6 +42,7 @@ import Control.Distributed.Process ( spawnLocal
                                    , processNodeId
                                    , whereisRemoteAsync
                                    , Process
+                                   , SendPort
                                    , DiedReason(..)
                                    , ReceivePort
                                    , ProcessId(..)
@@ -98,12 +98,14 @@ leafClient recvStartMsg leafData = do
   receiveChan recvStartMsg
   leafMainClient recvMsgChan recReqRecvChan leafData
 
-reconnectReqHandler :: _ -> CastHandler _ ReconnectRequest
+reconnectReqHandler :: SendPort ReconnectRequest
+  -> CastHandler () ReconnectRequest
 reconnectReqHandler recReqRecvChan _ r = do
   sendChan recReqRecvChan r
   continue ()
 
-messageFromPeer :: _ -> CallHandler _ MessageList ()
+messageFromPeer :: SendPort [(LeafNodeId, TimePulse, Double)]
+  -> CallHandler () MessageList ()
 messageFromPeer fwdMsgChan _ (MessageList ms) = do
   sendChan fwdMsgChan ms
   reply () ()

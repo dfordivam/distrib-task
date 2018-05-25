@@ -1,6 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE PartialTypeSignatures #-}
 module HierRing.LeafNode
   (startLeafNode)
   where
@@ -42,6 +41,7 @@ import Control.Distributed.Process ( spawnLocal
                                    , processNodeId
                                    , whereisRemoteAsync
                                    , Process
+                                   , SendPort
                                    , DiedReason(..)
                                    , ProcessId(..)
                                    , ReceivePort
@@ -133,17 +133,20 @@ leafClient recvStartMsg leafData = do
   leafMainClient recvMsgChan recReqRecvChan
     getIncomingClsMsg sendOwnClsMsg isLeader leafData
 
-reconnectReqHandler :: _ -> CastHandler _ ReconnectRequest
+reconnectReqHandler :: SendPort ReconnectRequest
+  -> CastHandler () ReconnectRequest
 reconnectReqHandler recReqRecvChan _ r = do
   sendChan recReqRecvChan r
   continue ()
 
-messageFromPeer :: _ -> CallHandler _ MessageList ()
+messageFromPeer :: SendPort MessageList
+  -> CallHandler () MessageList ()
 messageFromPeer fwdMsgChan _ ms = do
   sendChan fwdMsgChan ms
   reply () ()
 
-messageFromLeader :: _ -> CastHandler _ [ClusterMessage]
+messageFromLeader :: SendPort [ClusterMessage]
+  -> CastHandler () [ClusterMessage]
 messageFromLeader fwdMsgChan _ (ms) = do
   sendChan fwdMsgChan ms
   continue ()

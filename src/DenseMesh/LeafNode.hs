@@ -1,5 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE PartialTypeSignatures #-}
 module DenseMesh.LeafNode
   (startLeafNode)
   where
@@ -41,6 +40,7 @@ import Control.Distributed.Process ( spawnLocal
                                    , processNodeId
                                    , whereisRemoteAsync
                                    , Process
+                                   , SendPort
                                    , DiedReason(..)
                                    , ProcessId(..)
                                    , ReceivePort
@@ -126,7 +126,8 @@ leafClientWork leafData ppids dbRef = do
 
   liftIO $ printResult allValues (leafId leafData)
 
-messageFromPeer :: _ -> CastHandler _ NewMessage
+messageFromPeer :: (MVar [Double])
+  -> CastHandler () NewMessage
 messageFromPeer (dbRef) _ (NewMessage d) = do
   liftIO $ modifyMVar_ dbRef (\ds -> return $ d:ds)
   continue ()

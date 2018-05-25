@@ -42,7 +42,6 @@ library
                        , distributed-process-client-server
                        , distributed-process-extras
                        , distributed-process-async
-                       , network-transport-tcp
                        , network-transport
                        , optparse-applicative
                        , random
@@ -61,7 +60,6 @@ executable node
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base >=4.9 && <4.11
                        , distributed-process
-                       , distributed-process-client-server
                        , network-transport-tcp
                        , network-transport
                        , optparse-applicative

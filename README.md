@@ -6,7 +6,7 @@
   $ stack build
 
   # Run nodes which will communicate with each other
-  # By default the Hierarchical Ring configuration is chosen
+  # By default the Safe Ring implementation is chosen
   $ stack exec node -- --host "127.0.0.1" --port "12340"
   $ stack exec node -- --host "127.0.0.1" --port "12341"
   $ stack exec node -- --host "127.0.0.1" --port "12342"
@@ -75,13 +75,13 @@ The ring configuration has a TimePulse concept. It is to allow each node to incl
 - Maximum throughput for number of messages sent
 
 ### Cons
-- Network stops if any node goes down
+- Network stops if any node goes down, the next implementation addresses this problem.
 
 ## Safe Ring
 
 This implementation has features like connecting to next available node in case one disconnects.
 And the disconnected node can again become part of the ring, once it comes online.
-This overcomes the biggest drawback of the normal ring network.
+This overcomes the biggest drawback of a simple ring network.
 
 These parameters are configurable in this mode and Hierarchical Ring
 
@@ -91,7 +91,7 @@ These parameters are configurable in this mode and Hierarchical Ring
 
 ## Hierarchical Ring
 
-This consists of a cluster of nodes connected in a ring, and the clusters themselves again connected in a ring form.
+This consists of a cluster of nodes connected in a ring, and the clusters themselves again connected in a ring formation.
 Each cluster has a leader node which participates in the intercluster ring.
 Inside each cluster the 'safe ring' implementation has been used to protect against node disconnection inside a cluster.
 

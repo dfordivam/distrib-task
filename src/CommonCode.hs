@@ -67,12 +67,10 @@ import qualified Data.ByteString.Char8 as BS (pack)
 searchRemotePid :: String -> (String, Int) -> Process ProcessId
 searchRemotePid name addr@(h,p) = do
   let ep = EndPointAddress $ BS.pack $
-                   h ++ ":" ++ (show p)
-  -- XXX is 0 required?
-                   ++ ":0"
+                   h ++ ":" ++ (show p) ++ ":0"
       srvId = NodeId ep
   whereisRemoteAsync srvId name
-  reply <- expectTimeout 1000000
+  reply <- expectTimeout (timeToMicros Seconds 2)
   case reply of
     Just (WhereIsReply _ (Just sid)) -> return sid
     _ -> do

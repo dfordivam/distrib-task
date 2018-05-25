@@ -27,7 +27,6 @@ import Control.Distributed.Process.Node (newLocalNode, initRemoteTable)
 import Control.Monad.IO.Class (liftIO)
 
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
-import Network.Transport as NT
 
 data InputArgs = InputArgs
   { configForServer :: Maybe (String, (Int,Int,Int))
@@ -63,7 +62,7 @@ inputArgs = InputArgs
         <> (command "hier" (info (pure HierRing) (progDesc "hier")))))
 
 getImplFn Nothing =
-  (HR.startLeafNode, HR.startSupervisorNode)
+  (SR.startLeafNode, SR.startSupervisorNode)
 getImplFn (Just HierRing) =
   (HR.startLeafNode, HR.startSupervisorNode)
 getImplFn (Just SingleServer) =

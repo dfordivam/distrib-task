@@ -1,5 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE PartialTypeSignatures #-}
 module LinkList.LeafNode
   (startLeafNode)
   where
@@ -38,6 +37,7 @@ import Control.Distributed.Process ( spawnLocal
                                    , processNodeId
                                    , whereisRemoteAsync
                                    , Process
+                                   , SendPort
                                    , DiedReason(..)
                                    , ProcessId(..)
                                    , ReceivePort
@@ -59,7 +59,7 @@ import Data.Foldable (toList)
 import qualified Data.Sequence as Seq
 import qualified Data.Vector.Unboxed.Mutable as MUV
 import qualified Data.Vector.Unboxed as UV
-import System.Random (mkStdGen, random)
+import System.Random (mkStdGen, random, StdGen)
 import Data.Time.Clock (getCurrentTime
                        , addUTCTime)
 
@@ -176,12 +176,16 @@ type WorkServerDb = Seq.Seq (MUV.IOVector Double)
 initWorkServer rng = do
   return $ InitOk (rng, TimePulse 0) Infinity
 
-testPing2 :: CallHandler _ TestPing Int
+testPing2 :: CallHandler (StdGen, TimePulse) TestPing Int
 testPing2 s _ = do
   say "testPing2"
   reply 3 s
 
-messageFromPeer :: _ -> CastHandler _ MessageList
+messageFromPeer
+  :: (SendPort MessageList
+     , SendPort [(LeafNodeId, TimePulse, Double)]
+     , LeafInitData)
+  -> CastHandler (StdGen, TimePulse) MessageList
 messageFromPeer (fwdMsgChan, addDbChan, leafData)
   (rng, t) (MessageList ms) = do
 
